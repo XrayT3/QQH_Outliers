@@ -2,6 +2,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 
 class IModel:
@@ -62,7 +63,16 @@ class Environment:
 
     def run(self):
         print(f"Start: {self.start_date}, End: {self.end_date}")
-        for date in pd.date_range(self.start_date, self.end_date):
+
+        run_fraction = 0.25
+
+        # Create a date range array and calculate the number of days to run
+        date_range = pd.date_range(self.start_date, self.end_date)
+        num_dates_to_run = int(len(date_range) * run_fraction)
+        date_range = date_range[:num_dates_to_run]
+        bankroll_history = np.zeros(len(date_range))
+
+        for i, date in enumerate(date_range):
 
             # get results from previous day(s) and evaluate bets
             inc = self._next_date(date)
@@ -74,6 +84,8 @@ class Environment:
                 continue
 
             summary = self._generate_summary(date)
+            # Store the bankroll value for this day
+            bankroll_history[i] = summary["Bankroll"].values[0]
 
             bets = self.model.place_bets(summary, opps, inc)
 
@@ -83,6 +95,15 @@ class Environment:
 
         # evaluate bets of last game day
         self._next_date(self.end_date + pd.to_timedelta(1, "days"))
+
+        # Plot the bankroll changes over time
+        plt.figure(figsize=(10, 6))
+        plt.plot(date_range, bankroll_history)
+        plt.title("Bankroll Over Time")
+        plt.xlabel("Date")
+        plt.ylabel("Bankroll")
+        plt.grid()
+        plt.show()
 
         return self.games
 
