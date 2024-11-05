@@ -64,7 +64,7 @@ class Environment:
     def run(self):
         print(f"Start: {self.start_date}, End: {self.end_date}")
 
-        run_fraction = 0.25
+        run_fraction = 0.2
 
         # Create a date range array and calculate the number of days to run
         date_range = pd.date_range(self.start_date, self.end_date)
@@ -81,6 +81,7 @@ class Environment:
             # today's games + next day(s) games -> self.odds_availability
             opps = self._get_options(date)
             if opps.empty:
+                bankroll_history[i] = bankroll_history[i-1]
                 continue
 
             summary = self._generate_summary(date)
