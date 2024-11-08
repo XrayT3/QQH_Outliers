@@ -64,7 +64,7 @@ class Environment:
     def run(self):
         print(f"Start: {self.start_date}, End: {self.end_date}")
 
-        run_fraction = 0.2
+        run_fraction = 0.4
 
         # Create a date range array and calculate the number of days to run
         date_range = pd.date_range(self.start_date, self.end_date)
