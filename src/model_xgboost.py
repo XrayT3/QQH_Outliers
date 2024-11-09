@@ -6,9 +6,18 @@ from xgboost import XGBClassifier
 
 
 def get_optimal_fractions(probabilities: np.ndarray, odds: pd.Series) -> np.ndarray:
-    odds = odds.to_numpy()
+    # Kelly criterion
+    b = odds.to_numpy()
     q = 1 - probabilities
-    return probabilities - (q / odds)
+    fractions = probabilities - (q / b)
+
+    var = 0.289
+    coefficient = np.square((b+1)*probabilities - 1) / (np.square((b + 1)*probabilities - 1) + np.square((b + 1)*var))
+    fractions *= coefficient
+
+    # remove negative values
+    fractions[fractions < 0] = 0
+    return fractions
 
 
 class Model:
@@ -283,7 +292,9 @@ class Model:
     def place_bets(self, summary: pd.DataFrame, opps: pd.DataFrame, inc: tuple[pd.DataFrame, pd.DataFrame]):
         bankroll = summary.iloc[0]['Bankroll']
         min_bet = summary.iloc[0]['Min_bet']
+        max_bet = summary.iloc[0]['Max_bet']
         n = len(opps)
+        bets = np.zeros((n, 2))
 
         # store data
         self.__store_inc(inc[0], inc[1])
@@ -301,28 +312,31 @@ class Model:
             self.model.fit(x_train, y_train)
             self.has_model = True
 
-        # make prediction
-        predictions = np.argmin(opps[['OddsH', 'OddsA']], axis=1)
-        no_bet = [np.arange(n)]
+        # skip betting on training seasons
+        if not self.has_model:
+            bets = pd.DataFrame(data=bets, columns=["BetH", "BetA"], index=opps.index)
+            return bets
 
-        if self.has_model:
-            x, no_info = self.get_data(opps)
-            predictions = self.model.predict(x)
-            probs = self.model.predict_proba(x)
-            # confidence threshold
-            confidence_threshold = np.where(np.all(probs < 0.5 + self.cnf_threshold, axis=1))[0]
-            no_bet = np.union1d(no_info, confidence_threshold).astype(int)
-            fractions = get_optimal_fractions(probs, opps[['OddsH', 'OddsA']])
+        # make prediction
+        x, no_info = self.get_data(opps)
+        predictions = self.model.predict(x)
+        probs = self.model.predict_proba(x)
+        # confidence threshold
+        confidence_threshold = np.where(np.all(probs < 0.5 + self.cnf_threshold, axis=1))[0]
+        no_bet = np.union1d(no_info, confidence_threshold).astype(int)
 
         # chose bets
-
-        # TODO: check if there is already my bet
-
+        prev_bets = opps[['BetH', 'BetA']].to_numpy()
+        fractions = get_optimal_fractions(probs, opps[['OddsH', 'OddsA']])
+        budget = bankroll * 0.1
+        budget_per_match = budget / n
+        my_bets = fractions * budget_per_match
+        my_bets -= prev_bets
+        my_bets[my_bets < min_bet] = 0
+        my_bets[my_bets > max_bet] = max_bet
 
         # place bets
-        bets = np.zeros((n, 2))
-        bets[np.arange(n), predictions] = min_bet
+        bets = my_bets
         bets[no_bet, :] = 0
-        # bets[np.arange(N), np.argmin(opps[['OddsH', 'OddsA']], axis=1)] = min_bet
         bets = pd.DataFrame(data=bets, columns=["BetH", "BetA"], index=opps.index)
         return bets
