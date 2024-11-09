@@ -23,91 +23,87 @@ def get_optimal_fractions(probabilities: np.ndarray, odds: pd.Series) -> np.ndar
 class Model:
 
     def __init_team(self, team_id):
-        self.team_stats[team_id] = {
-                    "H GM CNT": 0,
-                    "A GM CNT": 0,
-                    "H WIN CNT": 0,
-                    "A WIN CNT": 0,
-                    "H GS": 0,
-                    "A GS": 0,
-                    "H GC": 0,
-                    "A GC": 0,
-                    "H GS HISTORY": [],
-                    "A GS HISTORY": [],
-                    "H GC HISTORY": [],
-                    "A GC HISTORY": [],
-        }
-        self.team_historical_strength[team_id] = {
-                    "H WIN PCT": 0,
-                    "A WIN PCT": 0,
-                    "H GS AVG": 0,
-                    "A GS AVG": 0,
-                    "H GC AVG": 0,
-                    "A GC AVG": 0,
-                    "H GS STD": 0,
-                    "A GS STD": 0,
-                    "H GC STD": 0,
-                    "A GC STD": 0
-        }
+        # self.team_stats[team_id] = {
+        #             "H GM CNT": 0,
+        #             "A GM CNT": 0,
+        #             "H WIN CNT": 0,
+        #             "A WIN CNT": 0,
+        #             "H GS": 0,
+        #             "A GS": 0,
+        #             "H GC": 0,
+        #             "A GC": 0,
+        #             "H GS HISTORY": [],
+        #             "A GS HISTORY": [],
+        #             "H GC HISTORY": [],
+        #             "A GC HISTORY": [],
+        # }
+        # self.team_historical_strength[team_id] = {
+        #             "H WIN PCT": 0,
+        #             "A WIN PCT": 0,
+        #             "H GS AVG": 0,
+        #             "A GS AVG": 0,
+        #             "H GC AVG": 0,
+        #             "A GC AVG": 0,
+        #             "H GS STD": 0,
+        #             "A GS STD": 0,
+        #             "H GC STD": 0,
+        #             "A GC STD": 0
+        # }
         self.team_pi_rating[team_id] = {
                     "H RTG": 0.0,
                     "A RTG": 0.0
         }
 
     def __init__(self):
+        self.first_try = True
         self.lr = 0.26
         self.gamma = 0.5 # or 0.3
         self.teams_n = 2
-        self.cnf_threshold = 0.2
+        self.cnf_threshold = 0.15
         self.minimal_games = 39 * 4
         self.features_n = 2 * self.teams_n
         self.has_model = False
-        self.team_stats = {}
+        # self.team_stats = {}
         self.team_pi_rating = {}
-        self.team_historical_strength = {}
+        # self.team_historical_strength = {}
         self.games = pd.DataFrame()
-        self.players = pd.DataFrame()
         self.season = -1
         # TODO: set up hyperparameters
         self.model = XGBClassifier(max_depth=4, subsample=0.8, min_child_weight=5, colsample_bytree=0.25, seed=24)
 
-    def __store_inc(self, games: pd.DataFrame, players: pd.DataFrame):
+    def __store_inc(self, games: pd.DataFrame):
         if self.games.empty: self.games = games
         else: self.games = pd.concat([self.games, games])
-
-        if self.players.empty: self.players = players
-        else: self.players = pd.concat([self.players, players])
 
     def __is_enough_data(self):
         # 3 seasons is enough data
         return len(self.games['Season'].unique()) >= 3
 
     def __is_new_season(self, opps):
-        curr_season = opps['Season'].iloc[0]
+        curr_season = opps['Season'].iloc[-1]
         if self.season == curr_season:
             return False
         else:
             self.season = curr_season
-            print("New season: " + str(self.season))
             return True
 
-    def __update_team_historical_strength(self, team_id):
-        self.team_historical_strength[team_id]['H WIN PCT'] = (self.team_stats[team_id]['H WIN CNT'] /
-                                                               self.team_stats[team_id]['H GM CNT'])
-        self.team_historical_strength[team_id]['A WIN PCT'] = (self.team_stats[team_id]['A WIN CNT'] /
-                                                               self.team_stats[team_id]['A GM CNT'])
-        self.team_historical_strength[team_id]['H GS AVG'] = (self.team_stats[team_id]['H GS'] /
-                                                              self.team_stats[team_id]['H GM CNT'])
-        self.team_historical_strength[team_id]['A GS AVG'] = (self.team_stats[team_id]['A GS'] /
-                                                              self.team_stats[team_id]['A GM CNT'])
-        self.team_historical_strength[team_id]['H GC AVG'] = (self.team_stats[team_id]['H GC'] /
-                                                              self.team_stats[team_id]['H GM CNT'])
-        self.team_historical_strength[team_id]['A GC AVG'] = (self.team_stats[team_id]['A GC'] /
-                                                              self.team_stats[team_id]['A GM CNT'])
-        self.team_historical_strength[team_id]['H GS STD'] = np.std(self.team_stats[team_id]['H GS HISTORY'])
-        self.team_historical_strength[team_id]['A GS STD'] = np.std(self.team_stats[team_id]['A GS HISTORY'])
-        self.team_historical_strength[team_id]['H GC STD'] = np.std(self.team_stats[team_id]['H GC HISTORY'])
-        self.team_historical_strength[team_id]['A GC STD'] = np.std(self.team_stats[team_id]['A GC HISTORY'])
+    # def __update_team_historical_strength(self, team_id):
+    #     self.team_historical_strength[team_id]['H WIN PCT'] = (self.team_stats[team_id]['H WIN CNT'] /
+    #                                                            self.team_stats[team_id]['H GM CNT'])
+    #     self.team_historical_strength[team_id]['A WIN PCT'] = (self.team_stats[team_id]['A WIN CNT'] /
+    #                                                            self.team_stats[team_id]['A GM CNT'])
+    #     self.team_historical_strength[team_id]['H GS AVG'] = (self.team_stats[team_id]['H GS'] /
+    #                                                           self.team_stats[team_id]['H GM CNT'])
+    #     self.team_historical_strength[team_id]['A GS AVG'] = (self.team_stats[team_id]['A GS'] /
+    #                                                           self.team_stats[team_id]['A GM CNT'])
+    #     self.team_historical_strength[team_id]['H GC AVG'] = (self.team_stats[team_id]['H GC'] /
+    #                                                           self.team_stats[team_id]['H GM CNT'])
+    #     self.team_historical_strength[team_id]['A GC AVG'] = (self.team_stats[team_id]['A GC'] /
+    #                                                           self.team_stats[team_id]['A GM CNT'])
+    #     self.team_historical_strength[team_id]['H GS STD'] = np.std(self.team_stats[team_id]['H GS HISTORY'])
+    #     self.team_historical_strength[team_id]['A GS STD'] = np.std(self.team_stats[team_id]['A GS HISTORY'])
+    #     self.team_historical_strength[team_id]['H GC STD'] = np.std(self.team_stats[team_id]['H GC HISTORY'])
+    #     self.team_historical_strength[team_id]['A GC STD'] = np.std(self.team_stats[team_id]['A GC HISTORY'])
 
     def __expected_goal_diff(self, team_id, key: str):
         rating = self.team_pi_rating[team_id][key]
@@ -147,51 +143,54 @@ class Model:
         all_teams_id = set(games_2_seasons['HID']).union(games_2_seasons['AID'])
 
         for team_id in all_teams_id:
-            if team_id not in self.team_stats: self.__init_team(team_id)
+            if team_id not in self.team_pi_rating: self.__init_team(team_id)
 
-            self.team_stats[team_id]['H GM CNT'] = len(games_2_seasons.loc[games_2_seasons['HID'] == team_id])
-            self.team_stats[team_id]['A GM CNT'] = len(games_2_seasons.loc[games_2_seasons['AID'] == team_id])
-            self.team_stats[team_id]['H WIN CNT'] = len(games_2_seasons.loc[(games_2_seasons['HID'] == team_id) &
-                                                                            (games_2_seasons['H'] == 1)])
-            self.team_stats[team_id]['A WIN CNT'] = len(games_2_seasons.loc[(games_2_seasons['AID'] == team_id) &
-                                                                            (games_2_seasons['A'] == 1)])
-            self.team_stats[team_id]['H GS'] = games_2_seasons.loc[games_2_seasons['HID'] == team_id, 'HSC'].sum()
-            self.team_stats[team_id]['A GS'] = games_2_seasons.loc[games_2_seasons['AID'] == team_id, 'ASC'].sum()
-            self.team_stats[team_id]['H GC'] = games_2_seasons.loc[games_2_seasons['HID'] == team_id, 'ASC'].sum()
-            self.team_stats[team_id]['A GC'] = games_2_seasons.loc[games_2_seasons['AID'] == team_id, 'HSC'].sum()
-            self.team_stats[team_id]['H GS HISTORY'] = games_2_seasons.loc[
-                games_2_seasons['HID'] == team_id, 'HSC'].tolist()
-            self.team_stats[team_id]['A GS HISTORY'] = games_2_seasons.loc[
-                games_2_seasons['AID'] == team_id, 'ASC'].tolist()
-            self.team_stats[team_id]['H GC HISTORY'] = games_2_seasons.loc[
-                games_2_seasons['HID'] == team_id, 'ASC'].tolist()
-            self.team_stats[team_id]['A GC HISTORY'] = games_2_seasons.loc[
-                games_2_seasons['AID'] == team_id, 'HSC'].tolist()
+        # for team_id in all_teams_id:
+        #     if team_id not in self.team_stats: self.__init_team(team_id)
+        #
+        #     self.team_stats[team_id]['H GM CNT'] = len(games_2_seasons.loc[games_2_seasons['HID'] == team_id])
+        #     self.team_stats[team_id]['A GM CNT'] = len(games_2_seasons.loc[games_2_seasons['AID'] == team_id])
+        #     self.team_stats[team_id]['H WIN CNT'] = len(games_2_seasons.loc[(games_2_seasons['HID'] == team_id) &
+        #                                                                     (games_2_seasons['H'] == 1)])
+        #     self.team_stats[team_id]['A WIN CNT'] = len(games_2_seasons.loc[(games_2_seasons['AID'] == team_id) &
+        #                                                                     (games_2_seasons['A'] == 1)])
+        #     self.team_stats[team_id]['H GS'] = games_2_seasons.loc[games_2_seasons['HID'] == team_id, 'HSC'].sum()
+        #     self.team_stats[team_id]['A GS'] = games_2_seasons.loc[games_2_seasons['AID'] == team_id, 'ASC'].sum()
+        #     self.team_stats[team_id]['H GC'] = games_2_seasons.loc[games_2_seasons['HID'] == team_id, 'ASC'].sum()
+        #     self.team_stats[team_id]['A GC'] = games_2_seasons.loc[games_2_seasons['AID'] == team_id, 'HSC'].sum()
+        #     self.team_stats[team_id]['H GS HISTORY'] = games_2_seasons.loc[
+        #         games_2_seasons['HID'] == team_id, 'HSC'].tolist()
+        #     self.team_stats[team_id]['A GS HISTORY'] = games_2_seasons.loc[
+        #         games_2_seasons['AID'] == team_id, 'ASC'].tolist()
+        #     self.team_stats[team_id]['H GC HISTORY'] = games_2_seasons.loc[
+        #         games_2_seasons['HID'] == team_id, 'ASC'].tolist()
+        #     self.team_stats[team_id]['A GC HISTORY'] = games_2_seasons.loc[
+        #         games_2_seasons['AID'] == team_id, 'HSC'].tolist()
 
-            self.__update_team_historical_strength(team_id)
+            # self.__update_team_historical_strength(team_id)
 
         self.__delete_pi_ratings()
         for _, row in games_2_seasons.iterrows():
             self.__update_pi_rating(row)
 
     def add_new_data_from_current_season(self, team_h: int, team_a: int, match: pd.Series):
-        if match['H']: self.team_stats[team_h]['H WIN CNT'] += 1
-        self.team_stats[team_h]['H GM CNT'] += 1
-
-        if match['A']: self.team_stats[team_a]['A WIN CNT'] += 1
-        self.team_stats[team_a]['A GM CNT'] += 1
-
-        self.team_stats[team_h]['H GS'] += match['HSC']
-        self.team_stats[team_h]['H GC'] += match['ASC']
-        self.team_stats[team_a]['A GS'] += match['ASC']
-        self.team_stats[team_a]['A GC'] += match['HSC']
-        self.team_stats[team_h]['H GS HISTORY'].append(match['HSC'])
-        self.team_stats[team_h]['H GC HISTORY'].append(match['ASC'])
-        self.team_stats[team_a]['A GS HISTORY'].append(match['ASC'])
-        self.team_stats[team_a]['A GC HISTORY'].append(match['HSC'])
-
-        self.__update_team_historical_strength(team_a)
-        self.__update_team_historical_strength(team_h)
+        # if match['H']: self.team_stats[team_h]['H WIN CNT'] += 1
+        # self.team_stats[team_h]['H GM CNT'] += 1
+        #
+        # if match['A']: self.team_stats[team_a]['A WIN CNT'] += 1
+        # self.team_stats[team_a]['A GM CNT'] += 1
+        #
+        # self.team_stats[team_h]['H GS'] += match['HSC']
+        # self.team_stats[team_h]['H GC'] += match['ASC']
+        # self.team_stats[team_a]['A GS'] += match['ASC']
+        # self.team_stats[team_a]['A GC'] += match['HSC']
+        # self.team_stats[team_h]['H GS HISTORY'].append(match['HSC'])
+        # self.team_stats[team_h]['H GC HISTORY'].append(match['ASC'])
+        # self.team_stats[team_a]['A GS HISTORY'].append(match['ASC'])
+        # self.team_stats[team_a]['A GC HISTORY'].append(match['HSC'])
+        #
+        # self.__update_team_historical_strength(team_a)
+        # self.__update_team_historical_strength(team_h)
         self.__update_pi_rating(match)
 
     def get_features(self, team_h: int, team_a: int) -> np.ndarray:
@@ -245,10 +244,11 @@ class Model:
             team_h, team_a = match['HID'], match['AID']
 
             # if we have a new team in the current season we skip these games
-            if team_a not in self.team_stats or team_h not in self.team_stats: continue
-            # if we have little information about team we skip it
-            if self.team_stats[team_a]['H GM CNT'] + self.team_stats[team_a]['A GM CNT'] < self.minimal_games: continue
-            if self.team_stats[team_h]['H GM CNT'] + self.team_stats[team_h]['A GM CNT'] < self.minimal_games: continue
+            if team_a not in self.team_pi_rating or team_h not in self.team_pi_rating: continue
+            # if team_a not in self.team_stats or team_h not in self.team_stats: continue
+            # # if we have little information about team we skip it
+            # if self.team_stats[team_a]['H GM CNT'] + self.team_stats[team_a]['A GM CNT'] < self.minimal_games: continue
+            # if self.team_stats[team_h]['H GM CNT'] + self.team_stats[team_h]['A GM CNT'] < self.minimal_games: continue
 
             # get features
             x_train[i, :] = self.get_features(team_h, team_a)
@@ -274,16 +274,18 @@ class Model:
             team_h, team_a = match['HID'], match['AID']
 
             # if there is no info about team, skip
-            if team_a not in self.team_stats or team_h not in self.team_stats:
+            if team_a not in self.team_pi_rating or team_h not in self.team_pi_rating:
+            # if team_a not in self.team_stats or team_h not in self.team_stats:
                 skipped.append(i)
                 continue
 
-            if self.team_stats[team_a]['H GM CNT'] + self.team_stats[team_a]['A GM CNT'] < self.minimal_games:
-                skipped.append(i)
-                continue
-            if self.team_stats[team_h]['H GM CNT'] + self.team_stats[team_h]['A GM CNT'] < self.minimal_games:
-                skipped.append(i)
-                continue
+            # TODO: add this filter
+            # if self.team_stats[team_a]['H GM CNT'] + self.team_stats[team_a]['A GM CNT'] < self.minimal_games:
+            #     skipped.append(i)
+            #     continue
+            # if self.team_stats[team_h]['H GM CNT'] + self.team_stats[team_h]['A GM CNT'] < self.minimal_games:
+            #     skipped.append(i)
+            #     continue
 
             x_data[i, :] = self.get_features(team_h, team_a)
 
@@ -297,14 +299,18 @@ class Model:
         bets = np.zeros((n, 2))
 
         # store data
-        self.__store_inc(inc[0], inc[1])
+        self.__store_inc(inc[0])
 
         # update statistics for teams
-        for i, row in enumerate(inc[0].iterrows()):
-            match = row[1]
-            team_h, team_a = match['HID'], match['AID']
-            if team_a not in self.team_stats or team_h not in self.team_stats: continue
-            self.add_new_data_from_current_season(team_h, team_a, match)
+        # if True:
+        if not self.first_try:
+            for i, row in enumerate(inc[0].iterrows()):
+                match = row[1]
+                team_h, team_a = match['HID'], match['AID']
+                if team_a not in self.team_pi_rating or team_h not in self.team_pi_rating: continue
+                # if team_a not in self.team_stats or team_h not in self.team_stats: continue
+                self.add_new_data_from_current_season(team_h, team_a, match)
+        self.first_try = False
 
         # retrain model every season
         if self.__is_new_season(opps) and self.__is_enough_data():
@@ -319,7 +325,6 @@ class Model:
 
         # make prediction
         x, no_info = self.get_data(opps)
-        predictions = self.model.predict(x)
         probs = self.model.predict_proba(x)
         # confidence threshold
         confidence_threshold = np.where(np.all(probs < 0.5 + self.cnf_threshold, axis=1))[0]
