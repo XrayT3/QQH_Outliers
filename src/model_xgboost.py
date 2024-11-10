@@ -12,7 +12,8 @@ def get_optimal_fractions(probabilities: np.ndarray, odds: pd.Series) -> np.ndar
     fractions = probabilities - (q / b)
 
     var = 0.289
-    coefficient = np.square((b+1)*probabilities - 1) / (np.square((b + 1)*probabilities - 1) + np.square((b + 1)*var))
+    coefficient = np.square((b + 1) * probabilities - 1) / (
+                np.square((b + 1) * probabilities - 1) + np.square((b + 1) * var))
     fractions *= coefficient
 
     # remove negative values
@@ -24,18 +25,18 @@ class Model:
 
     def __init_team(self, team_id):
         self.team_stats[team_id] = {
-                    "GM CNT": 0,
-                    "GM CNT CS": 0
+            "GM CNT": 0,
+            "GM CNT CS": 0
         }
         self.team_pi_rating[team_id] = {
-                    "H RTG": 0.0,
-                    "A RTG": 0.0
+            "H RTG": 0.0,
+            "A RTG": 0.0
         }
 
     def __init__(self):
         self.first_try = True
         self.lr = 0.26
-        self.gamma = 0.5 # or 0.3
+        self.gamma = 0.5  # or 0.3
         self.teams_n = 2
         self.cnf_threshold = 0.15
         self.minimal_games = 39 * 4
@@ -48,8 +49,10 @@ class Model:
         self.model = XGBClassifier(max_depth=4, subsample=0.8, min_child_weight=5, colsample_bytree=0.25, seed=24)
 
     def __store_inc(self, games: pd.DataFrame):
-        if self.games.empty: self.games = games
-        else: self.games = pd.concat([self.games, games])
+        if self.games.empty:
+            self.games = games
+        else:
+            self.games = pd.concat([self.games, games])
 
     def __is_enough_data(self):
         # 3 seasons is enough data
@@ -92,7 +95,7 @@ class Model:
 
     def __delete_pi_ratings(self):
         for key in self.team_pi_rating.keys():
-            self.team_pi_rating[key] = { "H RTG": 0.0, "A RTG": 0.0, "EGD": 0.0}
+            self.team_pi_rating[key] = {"H RTG": 0.0, "A RTG": 0.0, "EGD": 0.0}
 
     def __calculate_stats_2_seasons(self, curr_season: int):
         last_2_seasons = [curr_season - 1, curr_season - 2]
@@ -149,10 +152,11 @@ class Model:
         y_train = np.zeros(games_curr_season.shape[0])
 
         for i, row in enumerate(games_curr_season.iterrows()):
-            match = row[1] # one row of dataframe
+            match = row[1]  # one row of dataframe
             team_h, team_a = match['HID'], match['AID']
 
             # if we have a new team in the current season we skip these games
+            # TODO: here is a bug; I create some rows with zeros for train dataset
             if team_a not in self.team_stats or team_h not in self.team_stats: continue
             # # if we have little information about team we skip it
             # if self.team_stats[team_a]['GM CNT'] < self.minimal_games: continue
@@ -208,7 +212,7 @@ class Model:
         self.__store_inc(inc[0])
 
         # update statistics for teams
-        if not self.first_try: # for qualification upload
+        if not self.first_try:  # for qualification upload
             for i, row in enumerate(inc[0].iterrows()):
                 match = row[1]
                 team_h, team_a = match['HID'], match['AID']
