@@ -20,6 +20,49 @@ def get_optimal_fractions(probabilities: np.ndarray, odds: pd.Series) -> np.ndar
     return fractions
 
 
+
+class EloModel:
+    def __init__(self):
+        self.homeAdv = 5
+        self.k0 = 6
+        self.gamma = 1.45
+        self.divisor = 10
+        self.power = 400
+
+        self.ratings = {}
+        return
+
+    def remove(self):
+        self.ratings = {}
+
+    def get_rating(self, team_id):
+        if team_id not in self.ratings:
+            self.ratings[team_id] = 1500
+        return self.ratings[team_id]
+
+    def update_rating(self, game):
+        homeRating = self.get_rating(game["HID"])
+        awayRating = self.get_rating(game["AID"])
+
+        diff = homeRating - awayRating + self.homeAdv
+        expectedA = 1 / (1 + self.divisor ** (-diff / self.power))
+        expectedB = 1 - expectedA
+
+        homeScore, awayScore = game["HSC"], game["ASC"]
+        k = self.k0 * ((1 + np.abs(homeScore - awayScore)) ** self.gamma)
+
+        self.ratings[game["HID"]] = homeRating + k*(float(game["H"]) - expectedA)
+        self.ratings[game["AID"]] = awayRating + k*(float(game["A"]) - expectedB)
+
+    def get_probability(self, teamA, teamB):
+        ratingA, ratingB = self.get_rating(teamA), self.get_rating(teamB)
+        diff = ratingA - ratingB
+        if diff > 10000: exit(1)
+        probability = 1 - 1 / (1 + np.exp(0.00583 * diff - 0.0505))
+        return float(probability)
+
+
+
 class Model:
 
     def __init_team(self, team_id):
@@ -31,6 +74,7 @@ class Model:
                     "H RTG": 0.0,
                     "A RTG": 0.0
         }
+        self.elo_rating = EloModel()
 
     def __init__(self):
         self.first_try = True
@@ -39,10 +83,11 @@ class Model:
         self.teams_n = 2
         self.cnf_threshold = 0.15
         self.minimal_games = 39 * 4
-        self.features_n = 2 * self.teams_n
+        self.features_n = 3 * self.teams_n
         self.has_model = False
         self.team_stats = {}
         self.team_pi_rating = {}
+        self.elo_rating = EloModel()
         self.games = pd.DataFrame()
         self.season = -1
         self.model = XGBClassifier(max_depth=4, subsample=0.8, min_child_weight=5, colsample_bytree=0.25, seed=24)
@@ -90,9 +135,12 @@ class Model:
         self.team_pi_rating[team_a]['A RTG'] += ps_a * self.lr
         self.team_pi_rating[team_a]['H RTG'] += (self.team_pi_rating[team_a]['A RTG'] - old_team_a_a) * self.gamma
 
+        self.elo_rating.update_rating(match)
+
     def __delete_pi_ratings(self):
         for key in self.team_pi_rating.keys():
             self.team_pi_rating[key] = { "H RTG": 0.0, "A RTG": 0.0, "EGD": 0.0}
+        self.elo_rating.remove()
 
     def __calculate_stats_2_seasons(self, curr_season: int):
         last_2_seasons = [curr_season - 1, curr_season - 2]
@@ -126,14 +174,17 @@ class Model:
         # home team's features
         x_features[0] = self.team_pi_rating[team_h]['H RTG']
         x_features[1] = self.team_pi_rating[team_h]['A RTG']
+        x_features[2] = self.elo_rating.get_rating(team_h)
         # x_features[2] = self.team_historical_strength[team_h]['H WIN PCT']
         # x_features[3] = self.team_historical_strength[team_h]['A WIN PCT']
 
         # away team's features
-        x_features[2] = self.team_pi_rating[team_a]['H RTG']
-        x_features[3] = self.team_pi_rating[team_a]['A RTG']
+        x_features[3] = self.team_pi_rating[team_a]['H RTG']
+        x_features[4] = self.team_pi_rating[team_a]['A RTG']
+        x_features[5] = self.elo_rating.get_rating(team_a)
         # x_features[6] = self.team_historical_strength[team_a]['H WIN PCT']
         # x_features[7] = self.team_historical_strength[team_a]['A WIN PCT']
+
 
         return x_features
 
