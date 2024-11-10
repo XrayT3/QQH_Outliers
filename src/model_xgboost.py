@@ -21,6 +21,42 @@ def get_optimal_fractions(probabilities: np.ndarray, odds: pd.Series) -> np.ndar
     return fractions
 
 
+class EloModel:
+    def __init__(self):
+        self.homeAdv = 5
+        self.k0 = 6
+        self.gamma = 1.45
+        self.divisor = 10
+        self.power = 400
+
+        self.ratings = {}
+
+    def remove(self):
+        for key in self.ratings.keys():
+            self.ratings[key] = 1500
+
+    def update_rating(self, game):
+        homeRating = self.ratings[game["HID"]]
+        awayRating = self.ratings[game["AID"]]
+        homeScore, awayScore = game["HSC"], game["ASC"]
+
+        diff = homeRating - awayRating + self.homeAdv
+        expected = 1 / (1 + self.divisor ** (-diff / self.power))
+
+        k = self.k0 * ((1 + np.abs(homeScore - awayScore)) ** self.gamma)
+
+        self.ratings[game["HID"]] = homeRating + k * (game["A"] - expected)
+        self.ratings[game["AID"]] = awayRating - k * (game["A"] - expected)
+
+    def get_probability(self, teamA, teamB):
+        ratingA, ratingB = self.ratings[teamA], self.ratings[teamB]
+        diff = ratingA - ratingB
+        if diff > 10000: exit(1)
+        probability = 1 - 1 / (1 + np.exp(0.00583 * diff - 0.0505))
+        return float(probability)
+
+
+
 class Model:
 
     def __init_team(self, team_id):
@@ -32,6 +68,7 @@ class Model:
             "H RTG": 0.0,
             "A RTG": 0.0
         }
+        self.elo_rating.ratings[team_id] = 1500
 
     def __init__(self):
         self.first_try = True
@@ -44,15 +81,14 @@ class Model:
         self.has_model = False
         self.team_stats = {}
         self.team_pi_rating = {}
+        self.elo_rating = EloModel()
         self.games = pd.DataFrame()
         self.season = -1
         self.model = XGBClassifier(max_depth=4, subsample=0.8, min_child_weight=5, colsample_bytree=0.25, seed=24)
 
     def __store_inc(self, games: pd.DataFrame):
-        if self.games.empty:
-            self.games = games
-        else:
-            self.games = pd.concat([self.games, games])
+        if self.games.empty: self.games = games
+        else: self.games = pd.concat([self.games, games])
 
     def __is_enough_data(self):
         # 3 seasons is enough data
@@ -104,9 +140,6 @@ class Model:
         all_teams_id = set(games_2_seasons['HID']).union(games_2_seasons['AID'])
 
         for team_id in all_teams_id:
-            if team_id not in self.team_pi_rating: self.__init_team(team_id)
-
-        for team_id in all_teams_id:
             if team_id not in self.team_stats: self.__init_team(team_id)
 
             h_gm_cnt = len(games_2_seasons.loc[games_2_seasons['HID'] == team_id])
@@ -115,28 +148,30 @@ class Model:
             self.team_stats[team_id]['GM CNT CS'] = 0
 
         self.__delete_pi_ratings()
+        self.elo_rating.remove()
         for _, row in games_2_seasons.iterrows():
             self.__update_pi_rating(row)
+            self.elo_rating.update_rating(row)
 
     def add_new_data_from_current_season(self, team_h: int, team_a: int, match: pd.Series):
         self.team_stats[team_h]['GM CNT CS'] += 1
         self.team_stats[team_a]['GM CNT CS'] += 1
 
         self.__update_pi_rating(match)
+        self.elo_rating.update_rating(match)
 
     def get_features(self, team_h: int, team_a: int) -> np.ndarray:
         x_features = np.zeros(self.features_n)
         # home team's features
         x_features[0] = self.team_pi_rating[team_h]['H RTG']
         x_features[1] = self.team_pi_rating[team_h]['A RTG']
-        # x_features[2] = self.team_historical_strength[team_h]['H WIN PCT']
-        # x_features[3] = self.team_historical_strength[team_h]['A WIN PCT']
 
         # away team's features
         x_features[2] = self.team_pi_rating[team_a]['H RTG']
         x_features[3] = self.team_pi_rating[team_a]['A RTG']
-        # x_features[6] = self.team_historical_strength[team_a]['H WIN PCT']
-        # x_features[7] = self.team_historical_strength[team_a]['A WIN PCT']
+
+        # x_features[4] = self.elo_rating.ratings[team_h]
+        # x_features[5] = self.elo_rating.ratings[team_a]
 
         return x_features
 
@@ -150,14 +185,16 @@ class Model:
         games_curr_season = self.games[self.games['Season'] == curr_season]
         x_train = np.zeros((games_curr_season.shape[0], self.features_n))
         y_train = np.zeros(games_curr_season.shape[0])
+        good_rows = np.ones(games_curr_season.shape[0], dtype=bool)
 
         for i, row in enumerate(games_curr_season.iterrows()):
             match = row[1]  # one row of dataframe
             team_h, team_a = match['HID'], match['AID']
 
             # if we have a new team in the current season we skip these games
-            # TODO: here is a bug; I create some rows with zeros for train dataset
-            if team_a not in self.team_stats or team_h not in self.team_stats: continue
+            if team_a not in self.team_stats or team_h not in self.team_stats:
+                good_rows[i] = 0
+                continue
             # # if we have little information about team we skip it
             # if self.team_stats[team_a]['GM CNT'] < self.minimal_games: continue
             # if self.team_stats[team_h]['GM CNT'] < self.minimal_games: continue
@@ -169,13 +206,17 @@ class Model:
             # add new data from the current season
             self.add_new_data_from_current_season(team_h, team_a, match)
 
+        x_train_without_zeros = x_train[good_rows, :]
+        y_train_without_zeros = y_train[good_rows]
+
         # remove old season
         self.games = self.games[self.games['Season'].isin([curr_season, curr_season - 1])]
 
         # reset teams stat before new season
         self.__calculate_stats_2_seasons(self.season)
 
-        return x_train, y_train
+        return x_train_without_zeros, y_train_without_zeros
+        # return x_train, y_train
 
     def get_data(self, opps: pd.DataFrame) -> (np.array, list):
         x_data = np.zeros((opps.shape[0], self.features_n))
