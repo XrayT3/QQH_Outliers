@@ -72,10 +72,29 @@ class Environment:
         date_range = date_range[:num_dates_to_run]
         bankroll_history = np.zeros(len(date_range))
 
+        cnt_wins_list = []
+        cnt_losses_list = []
+        dates_of_results = []
+        cnt_wins = 0
+        cnt_losses = 0
+        store_game_bets = pd.DataFrame([])
         for i, date in enumerate(date_range):
 
             # get results from previous day(s) and evaluate bets
             inc = self._next_date(date)
+            games, players = inc
+            for idx, game in games.iterrows():
+                game_id = idx
+                stored_bet = store_game_bets.iloc[game_id]
+
+                if not stored_bet.empty:
+                    if stored_bet["BetH"] > stored_bet["BetA"] and game["H"]:
+                        cnt_wins += 1
+                    elif stored_bet["BetH"] < stored_bet["BetA"] and game["A"]:
+                        cnt_wins += 1
+                    else:
+                        cnt_losses += 1
+
 
             # get betting options for current day
             # today's games + next day(s) games -> self.odds_availability
@@ -90,9 +109,15 @@ class Environment:
 
             bets = self.model.place_bets(summary, opps, inc)
 
+            store_game_bets = pd.concat([store_game_bets, bets])
+
             validated_bets = self._validate_bets(bets, opps)
 
             self._place_bets(date, validated_bets)
+
+            cnt_wins_list.append(cnt_wins)
+            cnt_losses_list.append(cnt_losses)
+            dates_of_results.append(date)
 
         # evaluate bets of last game day
         self._next_date(self.end_date + pd.to_timedelta(1, "days"))
@@ -103,6 +128,16 @@ class Environment:
         plt.title("Bankroll Over Time")
         plt.xlabel("Date")
         plt.ylabel("Bankroll")
+        plt.grid()
+
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(dates_of_results, cnt_wins_list, label="Wins", color="green")
+        plt.plot(dates_of_results, cnt_losses_list, label="Losses", color="red")
+        plt.title("Wins and Losses Over Time")
+        plt.xlabel("Date")
+        plt.ylabel("Number of wins/loses")
+        plt.legend()
         plt.grid()
         plt.show()
 
