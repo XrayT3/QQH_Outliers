@@ -60,11 +60,13 @@ class Environment:
         self.last_seen = pd.to_datetime("1900-01-01")
 
         self.history = {"Date": [], "Bankroll": [], "Cash_Invested": []}
+        self.total_bets = 0
+        self.correct_bets = 0
 
     def run(self):
         print(f"Start: {self.start_date}, End: {self.end_date}")
 
-        run_fraction = 0.9
+        run_fraction = 1
 
         # Create a date range array and calculate the number of days to run
         date_range = pd.date_range(self.start_date, self.end_date)
@@ -106,6 +108,9 @@ class Environment:
         plt.grid()
         plt.show()
 
+        accuracy = (self.correct_bets / self.total_bets) * 100
+        print(f"\nTotal Bet Accuracy: {accuracy:.4f}%")
+
         return self.games
 
     def get_history(self):
@@ -131,6 +136,13 @@ class Environment:
 
             # update bankroll with the winnings
             self.bankroll += winnings
+
+            # Track accuracy of bets
+            correct_bets = (b * r > 0).sum()
+            total_bets = (b > 0).sum()
+
+            self.correct_bets += correct_bets
+            self.total_bets += total_bets
 
             # save current bankroll
             self._save_state(date + pd.Timedelta(6, unit="h"), 0.0)

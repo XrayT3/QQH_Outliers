@@ -48,13 +48,41 @@ class EloModel:
         self.ratings[game["HID"]] = homeRating + k * (game["A"] - expected)
         self.ratings[game["AID"]] = awayRating - k * (game["A"] - expected)
 
-    def get_probability(self, teamA, teamB):
-        ratingA, ratingB = self.ratings[teamA], self.ratings[teamB]
-        diff = ratingA - ratingB
-        if diff > 10000: exit(1)
-        probability = 1 - 1 / (1 + np.exp(0.00583 * diff - 0.0505))
-        return float(probability)
 
+class Berrar:
+    def __init__(self):
+        self.att_ratings = {}
+        self.def_ratings = {}
+        self.beta = 0.11
+        self.gamma = 3.6
+        self.omega_att = 0.54
+        self.omega_def = 0.3
+
+    def remove(self):
+        for key in self.att_ratings.keys():
+            self.att_ratings[key] = 1500
+            self.def_ratings[key] = 1500
+
+    def update_rating(self, match):
+        def eXg(att_rtg, def_rtg, alfa, beta, gamma):
+            return alfa / (1 + np.exp(-beta * (att_rtg + def_rtg) - gamma))
+
+        alpha = 5
+
+        HID, AID, HSC, ASC = match['HID'], match['AID'], match['HSC'], match['ASC']
+
+        artg_h = self.att_ratings[HID]
+        drtg_h = self.def_ratings[HID]
+        artg_a = self.att_ratings[AID]
+        drtg_a = self.def_ratings[AID]
+
+        gh = eXg(artg_h, drtg_a, alpha, self.beta, self.gamma)
+        ga = eXg(artg_a, drtg_h, alpha, self.beta, self.gamma)
+
+        self.att_ratings[HID] += self.omega_att * (HSC - gh)
+        self.def_ratings[HID] += self.omega_def * (ASC - ga)
+        self.att_ratings[AID] += self.omega_att * (ASC - ga)
+        self.def_ratings[AID] += self.omega_def * (HSC - gh)
 
 
 class Model:
@@ -69,22 +97,29 @@ class Model:
             "A RTG": 0.0
         }
         self.elo_rating.ratings[team_id] = 1500
+        self.berrar.def_ratings[team_id] = 1500
+        self.berrar.att_ratings[team_id] = 1500
 
     def __init__(self):
         self.first_try = True
         self.lr = 0.26
         self.gamma = 0.5  # or 0.3
         self.teams_n = 2
-        self.cnf_threshold = 0.15
+        self.cnf_threshold = 0.2
         self.minimal_games = 39 * 4
         self.features_n = 2 * self.teams_n
         self.has_model = False
         self.team_stats = {}
         self.team_pi_rating = {}
         self.elo_rating = EloModel()
+        self.berrar = Berrar()
         self.games = pd.DataFrame()
         self.season = -1
-        self.model = XGBClassifier(max_depth=4, subsample=0.8, min_child_weight=5, colsample_bytree=0.25, seed=24)
+        # TODO: add Page Rank
+        # TODO: add average bankroll statistic
+        # self.model = XGBClassifier(max_depth=4, subsample=0.8, min_child_weight=5, colsample_bytree=0.25, seed=24)
+        self.model = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
+
 
     def __store_inc(self, games: pd.DataFrame):
         if self.games.empty: self.games = games
@@ -149,9 +184,11 @@ class Model:
 
         self.__delete_pi_ratings()
         self.elo_rating.remove()
+        self.berrar.remove()
         for _, row in games_2_seasons.iterrows():
             self.__update_pi_rating(row)
             self.elo_rating.update_rating(row)
+            self.berrar.update_rating(row)
 
     def add_new_data_from_current_season(self, team_h: int, team_a: int, match: pd.Series):
         self.team_stats[team_h]['GM CNT CS'] += 1
@@ -159,6 +196,7 @@ class Model:
 
         self.__update_pi_rating(match)
         self.elo_rating.update_rating(match)
+        self.berrar.update_rating(match)
 
     def get_features(self, team_h: int, team_a: int) -> np.ndarray:
         x_features = np.zeros(self.features_n)
@@ -172,6 +210,11 @@ class Model:
 
         # x_features[4] = self.elo_rating.ratings[team_h]
         # x_features[5] = self.elo_rating.ratings[team_a]
+
+        # x_features[4] = self.berrar.att_ratings[team_a]
+        # x_features[5] = self.berrar.def_ratings[team_a]
+        # x_features[6] = self.berrar.att_ratings[team_h]
+        # x_features[7] = self.berrar.def_ratings[team_h]
 
         return x_features
 
@@ -195,9 +238,15 @@ class Model:
             if team_a not in self.team_stats or team_h not in self.team_stats:
                 good_rows[i] = 0
                 continue
+
+            # TODO: should I remove it???
             # # if we have little information about team we skip it
-            # if self.team_stats[team_a]['GM CNT'] < self.minimal_games: continue
-            # if self.team_stats[team_h]['GM CNT'] < self.minimal_games: continue
+            if self.team_stats[team_a]['GM CNT'] < self.minimal_games:
+                good_rows[i] = 0
+                continue
+            if self.team_stats[team_h]['GM CNT'] < self.minimal_games:
+                good_rows[i] = 0
+                continue
 
             # get features
             x_train[i, :] = self.get_features(team_h, team_a)
@@ -216,7 +265,6 @@ class Model:
         self.__calculate_stats_2_seasons(self.season)
 
         return x_train_without_zeros, y_train_without_zeros
-        # return x_train, y_train
 
     def get_data(self, opps: pd.DataFrame) -> (np.array, list):
         x_data = np.zeros((opps.shape[0], self.features_n))
