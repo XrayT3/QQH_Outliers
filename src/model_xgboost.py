@@ -106,8 +106,10 @@ class Model:
         self.gamma = 0.5  # or 0.3
         self.teams_n = 2
         self.cnf_threshold = 0.2
-        self.minimal_games = 39 * 4
-        self.features_n = 2 * self.teams_n
+        self.window = 2
+        self.games_in_season = 78
+        self.minimal_games = self.games_in_season * self.window
+        self.features_n = 1 * self.teams_n
         self.has_model = False
         self.team_stats = {}
         self.team_pi_rating = {}
@@ -115,10 +117,14 @@ class Model:
         self.berrar = Berrar()
         self.games = pd.DataFrame()
         self.season = -1
-        # TODO: add Page Rank
-        # TODO: add average bankroll statistic
+        self.wins_cnt = np.zeros((100, 100))
+        self.games_cnt = np.zeros((100, 100))
         # self.model = XGBClassifier(max_depth=4, subsample=0.8, min_child_weight=5, colsample_bytree=0.25, seed=24)
-        self.model = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
+        # self.model = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
+        self.model_pi_rating = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
+        self.model_page_rank = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
+        # self.model_berrar = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
+        # self.model_elo = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
 
 
     def __store_inc(self, games: pd.DataFrame):
@@ -127,7 +133,7 @@ class Model:
 
     def __is_enough_data(self):
         # 3 seasons is enough data
-        return len(self.games['Season'].unique()) >= 3
+        return len(self.games['Season'].unique()) >= self.window + 1
 
     def __is_new_season(self, opps):
         curr_season = opps['Season'].iloc[-1]
@@ -164,9 +170,22 @@ class Model:
         self.team_pi_rating[team_a]['A RTG'] += ps_a * self.lr
         self.team_pi_rating[team_a]['H RTG'] += (self.team_pi_rating[team_a]['A RTG'] - old_team_a_a) * self.gamma
 
+    def __update_page_rank(self, match: pd.Series):
+        hid, aid = match['HID'], match['AID']
+
+        self.games_cnt[hid, aid] += 1
+        self.games_cnt[aid, hid] += 1
+
+        if match['H']: self.wins_cnt[hid, aid] += 1
+        if match['A']: self.wins_cnt[aid, hid] += 1
+
     def __delete_pi_ratings(self):
         for key in self.team_pi_rating.keys():
             self.team_pi_rating[key] = {"H RTG": 0.0, "A RTG": 0.0, "EGD": 0.0}
+
+    def __delete_page_rank(self):
+        self.wins_cnt = np.zeros((100, 100))
+        self.games_cnt = np.zeros((100, 100))
 
     def __calculate_stats_2_seasons(self, curr_season: int):
         last_2_seasons = [curr_season - 1, curr_season - 2]
@@ -182,11 +201,14 @@ class Model:
             self.team_stats[team_id]['GM CNT'] = h_gm_cnt + a_gm_cnt
             self.team_stats[team_id]['GM CNT CS'] = 0
 
+
         self.__delete_pi_ratings()
+        self.__delete_page_rank()
         self.elo_rating.remove()
         self.berrar.remove()
         for _, row in games_2_seasons.iterrows():
             self.__update_pi_rating(row)
+            self.__update_page_rank(row)
             self.elo_rating.update_rating(row)
             self.berrar.update_rating(row)
 
@@ -195,30 +217,39 @@ class Model:
         self.team_stats[team_a]['GM CNT CS'] += 1
 
         self.__update_pi_rating(match)
+        self.__update_page_rank(match)
         self.elo_rating.update_rating(match)
         self.berrar.update_rating(match)
 
-    def get_features(self, team_h: int, team_a: int) -> np.ndarray:
-        x_features = np.zeros(self.features_n)
+    def get_features(self, team_h: int, team_a: int) -> (np.ndarray, np.ndarray):
+        # x_features = np.zeros(self.features_n)
+        x_features_pi = np.zeros(4)
+        x_features_page = np.zeros(2)
+        # x_features_berrar = np.zeros(4)
+        # x_features_elo = np.zeros(2)
+
         # home team's features
-        x_features[0] = self.team_pi_rating[team_h]['H RTG']
-        x_features[1] = self.team_pi_rating[team_h]['A RTG']
+        x_features_pi[0] = self.team_pi_rating[team_h]['H RTG']
+        x_features_pi[1] = self.team_pi_rating[team_h]['A RTG']
 
         # away team's features
-        x_features[2] = self.team_pi_rating[team_a]['H RTG']
-        x_features[3] = self.team_pi_rating[team_a]['A RTG']
+        x_features_pi[2] = self.team_pi_rating[team_a]['H RTG']
+        x_features_pi[3] = self.team_pi_rating[team_a]['A RTG']
 
-        # x_features[4] = self.elo_rating.ratings[team_h]
-        # x_features[5] = self.elo_rating.ratings[team_a]
+        x_features_page[0] = self.wins_cnt[team_h, team_a] / self.games_cnt[team_h, team_a]
+        x_features_page[1] = self.wins_cnt[team_a, team_h] / self.games_cnt[team_a, team_h]
 
-        # x_features[4] = self.berrar.att_ratings[team_a]
-        # x_features[5] = self.berrar.def_ratings[team_a]
-        # x_features[6] = self.berrar.att_ratings[team_h]
-        # x_features[7] = self.berrar.def_ratings[team_h]
+        # x_features_berrar[0] = self.berrar.att_ratings[team_a]
+        # x_features_berrar[1] = self.berrar.def_ratings[team_a]
+        # x_features_berrar[2] = self.berrar.att_ratings[team_h]
+        # x_features_berrar[3] = self.berrar.def_ratings[team_h]
+        #
+        # x_features_elo[0] = self.elo_rating.ratings[team_h]
+        # x_features_elo[1] = self.elo_rating.ratings[team_a]
 
-        return x_features
+        return x_features_pi, x_features_page
 
-    def get_train_data(self) -> (np.array, np.array):
+    def get_train_data(self) -> (np.array, np.array, np.array, np.array, np.array):
         # TODO: remove rows with incomplete information
         curr_season = self.season - 1
 
@@ -226,7 +257,11 @@ class Model:
         self.__calculate_stats_2_seasons(curr_season)
 
         games_curr_season = self.games[self.games['Season'] == curr_season]
-        x_train = np.zeros((games_curr_season.shape[0], self.features_n))
+        # TODO: add parameters
+        x_train_pi = np.zeros((games_curr_season.shape[0], 4))
+        x_train_page = np.zeros((games_curr_season.shape[0], 2))
+        # x_train_berrar = np.zeros((games_curr_season.shape[0], 4))
+        # x_train_elo = np.zeros((games_curr_season.shape[0], 2))
         y_train = np.zeros(games_curr_season.shape[0])
         good_rows = np.ones(games_curr_season.shape[0], dtype=bool)
 
@@ -239,7 +274,6 @@ class Model:
                 good_rows[i] = 0
                 continue
 
-            # TODO: should I remove it???
             # # if we have little information about team we skip it
             if self.team_stats[team_a]['GM CNT'] < self.minimal_games:
                 good_rows[i] = 0
@@ -249,13 +283,17 @@ class Model:
                 continue
 
             # get features
-            x_train[i, :] = self.get_features(team_h, team_a)
+            x_train_pi[i, :], x_train_page[i, :] = self.get_features(team_h, team_a)
             y_train[i] = match['A']
 
             # add new data from the current season
             self.add_new_data_from_current_season(team_h, team_a, match)
 
-        x_train_without_zeros = x_train[good_rows, :]
+        x_train_without_zeros = x_train_pi[good_rows, :]
+        x_train_pi = x_train_pi[good_rows, :]
+        x_train_page = x_train_page[good_rows, :]
+        # x_train_berrar = x_train_berrar[good_rows, :]
+        # x_train_elo = x_train_elo[good_rows, :]
         y_train_without_zeros = y_train[good_rows]
 
         # remove old season
@@ -264,10 +302,13 @@ class Model:
         # reset teams stat before new season
         self.__calculate_stats_2_seasons(self.season)
 
-        return x_train_without_zeros, y_train_without_zeros
+        return x_train_pi, x_train_page, y_train_without_zeros
 
-    def get_data(self, opps: pd.DataFrame) -> (np.array, list):
-        x_data = np.zeros((opps.shape[0], self.features_n))
+    def get_data(self, opps: pd.DataFrame) -> (np.array, np.array, list):
+        x_data_pi = np.zeros((opps.shape[0], 4))
+        x_data_page = np.zeros((opps.shape[0], 2))
+        # x_data_berrar = np.zeros((opps.shape[0], 4))
+        # x_data_elo = np.zeros((opps.shape[0], 2))
         skipped = []
 
         for i, row in enumerate(opps.iterrows()):
@@ -286,14 +327,15 @@ class Model:
                 skipped.append(i)
                 continue
 
-            x_data[i, :] = self.get_features(team_h, team_a)
+            x_data_pi[i, :], x_data_page[i, :] = self.get_features(team_h, team_a)
 
-        return x_data, skipped
+        return x_data_pi, x_data_page, skipped
 
     def place_bets(self, summary: pd.DataFrame, opps: pd.DataFrame, inc: tuple[pd.DataFrame, pd.DataFrame]):
         bankroll = summary.iloc[0]['Bankroll']
         min_bet = summary.iloc[0]['Min_bet']
         max_bet = summary.iloc[0]['Max_bet']
+        month = summary.iloc[0]['Date'].month
         n = len(opps)
         bets = np.zeros((n, 2))
 
@@ -311,18 +353,28 @@ class Model:
 
         # retrain model every season
         if self.__is_new_season(opps) and self.__is_enough_data():
-            x_train, y_train = self.get_train_data()
-            self.model.fit(x_train, y_train)
+            x_train_pi, x_train_page, y_train = self.get_train_data()
+            self.model_pi_rating.fit(x_train_pi, y_train)
+            self.model_page_rank.fit(x_train_page, y_train)
+            # self.model_berrar.fit(x_train_berrar, y_train)
+            # self.model_elo.fit(x_train_elo, y_train)
             self.has_model = True
 
         # skip betting on training seasons
+        # if not self.has_model or month in [2, 3, 4, 5, 6]:
         if not self.has_model:
             bets = pd.DataFrame(data=bets, columns=["BetH", "BetA"], index=opps.index)
             return bets
 
         # make prediction
-        x, no_info = self.get_data(opps)
-        probs = self.model.predict_proba(x)
+        # TODO add linear regression that adds weight to probs from each model???
+        x1, x2, no_info = self.get_data(opps)
+        probs1 = self.model_pi_rating.predict_proba(x1)
+        probs2 = self.model_page_rank.predict_proba(x2)
+        # probs3 = self.model_berrar.predict_proba(x3)
+        # probs4 = self.model_elo.predict_proba(x4)
+        # probs = (probs1 + probs2) / 2.0
+        probs = 0.4*probs1 + 0.6*probs2
         # confidence threshold
         confidence_threshold = np.where(np.all(probs < 0.5 + self.cnf_threshold, axis=1))[0]
         no_bet = np.union1d(no_info, confidence_threshold).astype(int)

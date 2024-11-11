@@ -109,7 +109,8 @@ class Environment:
         plt.show()
 
         accuracy = (self.correct_bets / self.total_bets) * 100
-        print(f"\nTotal Bet Accuracy: {accuracy:.4f}%")
+        print(f"Total Bet Accuracy: {accuracy:.4f}%")
+        print(f"Average bankroll: {np.mean(bankroll_history):.0f}")
 
         return self.games
 

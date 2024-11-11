@@ -19,7 +19,6 @@ env = Environment(games, players, Model(), init_bankroll=1000, min_bet=5, max_be
 
 evaluation = env.run()
 
-print()
 print(f'Final bankroll: {env.bankroll:.2f}')
 
 history = env.get_history()
