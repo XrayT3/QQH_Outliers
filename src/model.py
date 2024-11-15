@@ -7,14 +7,30 @@ class EloModel:
         self.k0 = 6
         self.gamma = 1.45
         self.ratings = {}
+        self.cntMatches = {}
+        self.teamMembers = {}
         self.divisor = 10
         self.power = 400
         return
+
+    def clean(self):
+        self.ratings = {}
+        self.cntMatches = {}
 
     def get_rating(self, team_id):
         if team_id not in self.ratings:
             self.ratings[team_id] = 1500
         return self.ratings[team_id]
+
+    def get_cnt_matches(self, team_id):
+        if team_id not in self.cntMatches:
+            self.cntMatches[team_id] = 0
+        return self.cntMatches[team_id]
+
+    def get_team_members(self, team_id):
+        if team_id not in self.teamMembers:
+            self.teamMembers[team_id] = []
+        return self.teamMembers[team_id]
 
     def update_rating(self, game: dict):
         homeRating = self.get_rating(game["HID"])
@@ -30,7 +46,11 @@ class EloModel:
         self.ratings[game["HID"]] = homeRating + k*(float(game["H"]) - expectedA)
         self.ratings[game["AID"]] = awayRating + k*(float(game["A"]) - expectedB)
 
+        self.cntMatches[game["HID"]] = self.get_cnt_matches(game["HID"]) + 1
+        self.cntMatches[game["AID"]] = self.get_cnt_matches(game["AID"]) + 1
+
     def get_probability(self, teamA, teamB):
+        if self.get_cnt_matches(teamA) < 3 or self.get_cnt_matches(teamB) < 3: return 0.0
         ratingA, ratingB = self.get_rating(teamA), self.get_rating(teamB)
         diff = ratingA - ratingB
         if diff > 10000: exit(1)
@@ -43,7 +63,8 @@ class Model:
         self.minBet = 0
         self.maxBet = 0
         self.bankroll = 0
-        self.minConfidence = 0.9
+        self.minConfidence = 0.7
+        self.curSeason = 0
 
     def get_optimal_fractions(self, probabilities: np.ndarray, odds: pd.Series) -> np.ndarray:
         # Kelly criterion
@@ -63,8 +84,10 @@ class Model:
     def set_bets(self, probabilities, fractions, betSize):
         bets = np.array([0, 0], dtype=int)
         if probabilities[0] >= self.minConfidence:
+            # print(probabilities[0])
             bets[0] = fractions[0] * betSize
         if probabilities[1] >= self.minConfidence:
+            # print(probabilities[1])
             bets[1] = fractions[1] * betSize
 
         for id in [0, 1]:
@@ -80,8 +103,26 @@ class Model:
         N = len(opps)
         bets = np.zeros((opps.shape[0], 2))
         games_data, players_data = inc
+        
+        cur_teams = {}
+        for index, row in players_data.iterrows():
+            if row["Team"] not in cur_teams:
+                cur_teams[row["Team"]] = []
+            cur_teams[row["Team"]].append(row["Player"])
+        
+        for team_id in cur_teams.keys():
+            cur_teams[team_id] = sorted(cur_teams[team_id])
+            if self.Elo.get_team_members(team_id) != cur_teams[team_id]:
+                self.Elo.ratings[team_id] = 0
+                self.Elo.cntMatches[team_id] = 0
+                self.Elo.teamMembers[team_id] = cur_teams[team_id]
+        
 
         for index, row in games_data.iterrows():
+            if self.curSeason != row["Season"]:
+                self.Elo.clean()
+                self.curSeason = row["Season"]
+
             game_train = pd.Series.to_dict(row)
             self.Elo.update_rating(game_train)
 
