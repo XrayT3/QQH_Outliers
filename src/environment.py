@@ -82,7 +82,7 @@ class Environment:
             # get betting options for current day
             # today's games + next day(s) games -> self.odds_availability
             opps = self._get_options(date)
-            if opps.empty:
+            if opps.empty and inc[0].empty and inc[1].empty:
                 bankroll_history[i] = bankroll_history[i-1]
                 continue
 

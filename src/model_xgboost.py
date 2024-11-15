@@ -135,8 +135,8 @@ class Model:
         # 3 seasons is enough data
         return len(self.games['Season'].unique()) >= self.window + 1
 
-    def __is_new_season(self, opps):
-        curr_season = opps['Season'].iloc[-1]
+    def __is_new_season(self, data):
+        curr_season = data['Season'].iloc[-1]
         if self.season == curr_season:
             return False
         else:
@@ -352,7 +352,9 @@ class Model:
         self.first_try = False
 
         # retrain model every season
-        if self.__is_new_season(opps) and self.__is_enough_data():
+        if opps.empty: data = inc[0]
+        else: data = opps
+        if self.__is_new_season(data) and self.__is_enough_data():
             x_train_pi, x_train_page, y_train = self.get_train_data()
             self.model_pi_rating.fit(x_train_pi, y_train)
             self.model_page_rank.fit(x_train_page, y_train)
@@ -362,7 +364,7 @@ class Model:
 
         # skip betting on training seasons
         # if not self.has_model or month in [2, 3, 4, 5, 6]:
-        if not self.has_model:
+        if not self.has_model or opps.empty:
             bets = pd.DataFrame(data=bets, columns=["BetH", "BetA"], index=opps.index)
             return bets
 
@@ -373,7 +375,6 @@ class Model:
         probs2 = self.model_page_rank.predict_proba(x2)
         # probs3 = self.model_berrar.predict_proba(x3)
         # probs4 = self.model_elo.predict_proba(x4)
-        # probs = (probs1 + probs2) / 2.0
         probs = 0.4*probs1 + 0.6*probs2
         # confidence threshold
         confidence_threshold = np.where(np.all(probs < 0.5 + self.cnf_threshold, axis=1))[0]
