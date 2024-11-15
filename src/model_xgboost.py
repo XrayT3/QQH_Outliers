@@ -250,14 +250,12 @@ class Model:
         return x_features_pi, x_features_page
 
     def get_train_data(self) -> (np.array, np.array, np.array, np.array, np.array):
-        # TODO: remove rows with incomplete information
         curr_season = self.season - 1
 
         # get statistics for the last 2 seasons
         self.__calculate_stats_2_seasons(curr_season)
 
         games_curr_season = self.games[self.games['Season'] == curr_season]
-        # TODO: add parameters
         x_train_pi = np.zeros((games_curr_season.shape[0], 4))
         x_train_page = np.zeros((games_curr_season.shape[0], 2))
         # x_train_berrar = np.zeros((games_curr_season.shape[0], 4))
@@ -289,7 +287,6 @@ class Model:
             # add new data from the current season
             self.add_new_data_from_current_season(team_h, team_a, match)
 
-        x_train_without_zeros = x_train_pi[good_rows, :]
         x_train_pi = x_train_pi[good_rows, :]
         x_train_page = x_train_page[good_rows, :]
         # x_train_berrar = x_train_berrar[good_rows, :]
@@ -335,7 +332,6 @@ class Model:
         bankroll = summary.iloc[0]['Bankroll']
         min_bet = summary.iloc[0]['Min_bet']
         max_bet = summary.iloc[0]['Max_bet']
-        month = summary.iloc[0]['Date'].month
         n = len(opps)
         bets = np.zeros((n, 2))
 
@@ -369,7 +365,6 @@ class Model:
             return bets
 
         # make prediction
-        # TODO add linear regression that adds weight to probs from each model???
         x1, x2, no_info = self.get_data(opps)
         probs1 = self.model_pi_rating.predict_proba(x1)
         probs2 = self.model_page_rank.predict_proba(x2)

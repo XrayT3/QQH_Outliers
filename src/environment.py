@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 
 class IModel:
-    def place_bets(self, summary: pd.DataFrame, opps: pd.DataFrame, inc: pd.DataFrame):
+    def place_bets(self, summary: pd.DataFrame, opps: pd.DataFrame, inc: tuple[pd.DataFrame, pd.DataFrame]):
         raise NotImplementedError()
 
 
