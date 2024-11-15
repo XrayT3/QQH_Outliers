@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 import torch
+import random
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
@@ -40,6 +41,14 @@ def coefficients_to_probs(coefficient1, coefficient2):
     p2_norm = p2 / (p1 + p2)
     return p2_norm
 
+# Function to set the random seed
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 # Custom loss function
 class CustomMSELoss(nn.Module):
@@ -78,7 +87,10 @@ class TeamLevelNN(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-def train_model(x_train, y_train, epochs=150, batch_size=1024, lr=0.001):
+def train_model(x_train, y_train, seed=42, epochs=100, batch_size=1024, lr=0.001):
+    # Set seed for reproducibility
+    set_seed(seed)
+
     # Convert numpy arrays to PyTorch tensors
     x_train_tensor = torch.tensor(x_train, dtype=torch.float32)
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
@@ -105,7 +117,7 @@ def train_model(x_train, y_train, epochs=150, batch_size=1024, lr=0.001):
             loss.backward()
             optimizer.step()
 
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 20 == 0:
             print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.3f}')
 
     return model
@@ -152,7 +164,7 @@ class Model:
         self.first_try = True
         self.has_model = False
         self.minimal_games = 10
-        self.cnf_threshold = 0.02
+        self.cnf_threshold = 0.2
         self.trained_seasons = []
         self.games = pd.DataFrame()
         self.model = TeamLevelNN()
@@ -391,7 +403,7 @@ class Model:
         # chose bets
         prev_bets = opps[['BetH', 'BetA']].to_numpy()
         fractions = get_optimal_fractions(probs, opps[['OddsH', 'OddsA']])
-        budget = bankroll * 0.2
+        budget = bankroll * 0.1
         budget_per_match = budget / n
         my_bets = fractions * budget_per_match
         my_bets -= prev_bets
