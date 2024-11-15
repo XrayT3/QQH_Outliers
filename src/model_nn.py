@@ -34,13 +34,35 @@ def sharp_betting_strategy():
     # TODO
     pass
 
+def coefficients_to_probs(coefficient1, coefficient2):
+    p1 = 1 / coefficient1
+    p2 = 1 / coefficient2
+    p2_norm = p2 / (p1 + p2)
+    return p2_norm
+
+
+# Custom loss function
+class CustomMSELoss(nn.Module):
+    # TODO: try diff gamma
+    def __init__(self, gamma=0.2):
+        super(CustomMSELoss, self).__init__()
+        self.gamma = gamma
+
+    def forward(self, predictions, targets):
+        r = targets[:, 0]  # True class label (0 or 1)
+        m = targets[:, 1]  # Bookmaker's probability
+        t = predictions    # Model's predicted probability
+
+        # Compute the custom MSE loss
+        loss = torch.mean((t - r) ** 2 - self.gamma * (t - m) ** 2)
+        return loss
 
 class TeamLevelNN(nn.Module):
     def __init__(self):
         super(TeamLevelNN, self).__init__()
         # Define layers
         self.model = nn.Sequential(
-            nn.Linear(2, 64),
+            nn.Linear(38, 64),
             nn.Tanh(),
             nn.Dropout(0.2),
             nn.Linear(64, 32),
@@ -50,44 +72,25 @@ class TeamLevelNN(nn.Module):
             nn.Tanh(),
             nn.Dropout(0.2),
             nn.Linear(16, 1),
-            nn.Sigmoid()  # Using sigmoid for binary classification
+            nn.Sigmoid()  # Output probability between 0 and 1
         )
 
     def forward(self, x):
         return self.model(x)
 
-def classify(model, x_test):
-    # Convert test data to PyTorch tensor
-    x_test_tensor = torch.tensor(x_test, dtype=torch.float32)
-
-    # Set the model to evaluation mode
-    model.eval()
-
-    # Perform forward pass to get predictions
-    with torch.no_grad():  # Disable gradient calculation for inference
-        probs = model(x_test_tensor).squeeze()
-
-    # Convert probabilities to binary class predictions
-    predictions = (probs >= 0.5).int()  # Threshold of 0.5 for binary classification
-
-    # return predictions.numpy()
-    return probs.numpy()
-
-
-def train_model(x_train, y_train, epochs=50, batch_size=32, lr=0.001):
+def train_model(x_train, y_train, epochs=150, batch_size=1024, lr=0.001):
     # Convert numpy arrays to PyTorch tensors
     x_train_tensor = torch.tensor(x_train, dtype=torch.float32)
     y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
 
     # Create DataLoader
     dataset = TensorDataset(x_train_tensor, y_train_tensor)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
-    # Initialize model, loss function, and optimizer
+    # Initialize model, custom loss function, and optimizer
     model = TeamLevelNN()
-    # TODO: change loss function
-    criterion = nn.BCELoss()  # Binary Cross-Entropy Loss for binary classification
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.0001)  # L2 regularization
+    criterion = CustomMSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.0001)
 
     # Training loop
     for epoch in range(epochs):
@@ -103,16 +106,41 @@ def train_model(x_train, y_train, epochs=50, batch_size=32, lr=0.001):
             optimizer.step()
 
         if (epoch + 1) % 10 == 0:
-            print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.4f}')
+            print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.3f}')
 
     return model
+
+def classify(model, x_test):
+    # Convert test data to PyTorch tensor
+    x_test_tensor = torch.tensor(x_test, dtype=torch.float32)
+
+    model.eval()
+    with torch.no_grad():  # Disable gradient calculation for inference
+        probs = model(x_test_tensor).squeeze()
+
+    return probs.numpy()
 
 class Model:
 
     def __init_team(self, team_id):
         self.team_stats[team_id] = {
-            "GM CNT": 0,
-            "AST SUM": 0
+            'GM CNT': 0,
+            'AST': 0,
+            'BLK': 0,
+            'DRB': 0,
+            'FGA': 0,
+            'FGM': 0,
+            'FG3A': 0,
+            'FG3M': 0,
+            'FTA': 0,
+            'FTM': 0,
+            'ORB': 0,
+            'PF': 0,
+            'PM': 0,
+            'PTS': 0,
+            'RB': 0,
+            'STL': 0,
+            'TOV': 0,
         }
 
 
@@ -120,15 +148,15 @@ class Model:
         self.teams_n = 2
         self.year = 1900
         self.team_stats = {}
-        self.train_data = [[], []]  # [[X_1, X_2, ...], [y_1, y_2, ...]]
+        self.train_data = [[], [], []]  # [[X_1, X_2, ...], [y_1, y_2, ...]]
         self.first_try = True
         self.has_model = False
         self.minimal_games = 10
-        self.cnf_threshold = 0.2
+        self.cnf_threshold = 0.02
         self.trained_seasons = []
         self.games = pd.DataFrame()
         self.model = TeamLevelNN()
-        self.features_n = 1 * self.teams_n
+        self.features_n = 38
 
     def __store_inc(self, games: pd.DataFrame):
         if games.empty: return
@@ -156,13 +184,44 @@ class Model:
         self.team_stats[team_h]['GM CNT'] += 1
         self.team_stats[team_a]['GM CNT'] += 1
 
-        self.team_stats[team_h]['AST SUM'] += match['HAST']
-        self.team_stats[team_a]['AST SUM'] += match['AAST']
+        # Basic statistics
+        self.team_stats[team_h]['AST'] += match['HAST']
+        self.team_stats[team_a]['AST'] += match['AAST']
+        self.team_stats[team_h]['BLK'] += match['HBLK']
+        self.team_stats[team_a]['BLK'] += match['ABLK']
+        self.team_stats[team_h]['DRB'] += match['HDRB']
+        self.team_stats[team_a]['DRB'] += match['ADRB']
+        self.team_stats[team_h]['FGA'] += match['HFGA']
+        self.team_stats[team_a]['FGA'] += match['AFGA']
+        self.team_stats[team_h]['FGM'] += match['HFGM']
+        self.team_stats[team_a]['FGM'] += match['AFGM']
+        self.team_stats[team_h]['FG3A'] += match['HFG3A']
+        self.team_stats[team_a]['FG3A'] += match['AFG3A']
+        self.team_stats[team_h]['FG3M'] += match['HFG3M']
+        self.team_stats[team_a]['FG3M'] += match['AFG3M']
+        self.team_stats[team_h]['FTA'] += match['HFTA']
+        self.team_stats[team_a]['FTA'] += match['AFTA']
+        self.team_stats[team_h]['FTM'] += match['HFTM']
+        self.team_stats[team_a]['FTM'] += match['AFTM']
+        self.team_stats[team_h]['ORB'] += match['HORB']
+        self.team_stats[team_a]['ORB'] += match['AORB']
+        self.team_stats[team_h]['PF'] += match['HPF']
+        self.team_stats[team_a]['PF'] += match['APF']
+        self.team_stats[team_h]['PM'] += match['HSC'] - match['ASC']
+        self.team_stats[team_a]['PM'] += match['ASC'] - match['HSC']
+        self.team_stats[team_h]['PTS'] += match['HSC']
+        self.team_stats[team_a]['PTS'] += match['ASC']
+        self.team_stats[team_h]['RB'] += match['HRB']
+        self.team_stats[team_a]['RB'] += match['ARB']
+        self.team_stats[team_h]['STL'] += match['HSTL']
+        self.team_stats[team_a]['STL'] += match['ASTL']
+        self.team_stats[team_h]['TOV'] += match['HTOV']
+        self.team_stats[team_a]['TOV'] += match['ATOV']
         # TODO: add other statistics
 
     def __process_one_season(self, season_df: pd.DataFrame):
-        x_data = np.zeros((season_df.shape[0], self.features_n))
-        y_data = np.zeros(season_df.shape[0])
+        x_data = np.empty((season_df.shape[0], self.features_n))
+        y_data = np.empty((season_df.shape[0], 2))
         skipped_rows = []
 
         # remove rows with incomplete information
@@ -176,7 +235,7 @@ class Model:
 
             if self.team_stats[team_a]['GM CNT'] > self.minimal_games and self.team_stats[team_h]['GM CNT'] > self.minimal_games:
                 x_data[i, :] = self.get_features(team_h, team_a)
-                y_data[i] = match['A']
+                y_data[i] = match['A'] , coefficients_to_probs(match['OddsH'], match['OddsA'])
             else:
                 skipped_rows.append(i)
             self.__update_stats(match, team_h, team_a)
@@ -204,15 +263,73 @@ class Model:
             self.__process_one_season(season_df)
 
     def get_features(self, team_h: int, team_a: int) -> np.ndarray:
-        x_features = np.zeros(self.features_n)
+        x_features = np.empty(self.features_n)
 
-        x_features[0] = self.team_stats[team_h]['AST SUM'] / self.team_stats[team_h]['GM CNT']
-        x_features[1] = self.team_stats[team_a]['AST SUM'] / self.team_stats[team_a]['GM CNT']
+        game_cnt_h = self.team_stats[team_h]['GM CNT']
+        game_cnt_a = self.team_stats[team_a]['GM CNT']
+
+        # BASIC STATISTICS
+        x_features[0] = self.team_stats[team_h]['AST'] / game_cnt_h
+        x_features[1] = self.team_stats[team_a]['AST'] / game_cnt_a
+        x_features[2] = self.team_stats[team_h]['BLK'] / game_cnt_h
+        x_features[3] = self.team_stats[team_a]['BLK'] / game_cnt_a
+        # DREB: Defense Rebounds
+        x_features[4] = self.team_stats[team_h]['DRB'] / game_cnt_h
+        x_features[5] = self.team_stats[team_a]['DRB'] / game_cnt_a
+        # FG_PCT: Field Goals Made / Field Goals Attempted
+        x_features[6] = self.team_stats[team_h]['FGM'] /  self.team_stats[team_h]['FGA']
+        x_features[7] = self.team_stats[team_a]['FGM'] /  self.team_stats[team_a]['FGA']
+        # FG3_PCT: 3 points Field Goals Made / 3 points Field Goals Attempted
+        x_features[8] = self.team_stats[team_h]['FG3M'] / self.team_stats[team_h]['FG3A']
+        x_features[9] = self.team_stats[team_a]['FG3M'] / self.team_stats[team_a]['FG3A']
+        # FG3A: 3 points Filed Goals Attempted
+        x_features[10] = self.team_stats[team_h]['FG3A'] / game_cnt_h
+        x_features[11] = self.team_stats[team_a]['FG3A'] / game_cnt_a
+        # FG3M: 3 points Filed Goals Made
+        x_features[12] = self.team_stats[team_h]['FG3M'] / game_cnt_h
+        x_features[13] = self.team_stats[team_a]['FG3M'] / game_cnt_a
+        # FGA: Filed Goals Attempted
+        x_features[14] = self.team_stats[team_h]['FGA'] / game_cnt_h
+        x_features[15] = self.team_stats[team_a]['FGA'] / game_cnt_a
+        # FGM: Filed Goals Made
+        x_features[16] = self.team_stats[team_h]['FGM'] / game_cnt_h
+        x_features[17] = self.team_stats[team_a]['FGM'] / game_cnt_a
+        # FT_PCT: Percentage of free throws that team has made
+        x_features[18] = self.team_stats[team_h]['FTM'] / self.team_stats[team_h]['FTA']
+        x_features[19] = self.team_stats[team_a]['FTM'] / self.team_stats[team_a]['FTA']
+        # FTA: Free Throws Attempted
+        x_features[20] = self.team_stats[team_h]['FTA'] / game_cnt_h
+        x_features[21] = self.team_stats[team_a]['FTA'] / game_cnt_a
+        # FTM: Free Throws Made
+        x_features[22] = self.team_stats[team_h]['FTM'] / game_cnt_h
+        x_features[23] = self.team_stats[team_a]['FTM'] / game_cnt_a
+        # OREB: Offense Rebounds
+        x_features[24] = self.team_stats[team_h]['ORB'] / game_cnt_h
+        x_features[25] = self.team_stats[team_a]['ORB'] / game_cnt_a
+        # PF: Fouls
+        x_features[26] = self.team_stats[team_h]['PF'] / game_cnt_h
+        x_features[27] = self.team_stats[team_a]['PF'] / game_cnt_a
+        # Plus_Minus: difference in score
+        x_features[28] = self.team_stats[team_h]['PM'] / game_cnt_h
+        x_features[29] = self.team_stats[team_a]['PM'] / game_cnt_a
+        # PTS: Number of points
+        x_features[30] = self.team_stats[team_h]['PTS'] / game_cnt_h
+        x_features[31] = self.team_stats[team_a]['PTS'] / game_cnt_a
+        # REB: Rebounds
+        x_features[32] = self.team_stats[team_h]['RB'] / game_cnt_h
+        x_features[33] = self.team_stats[team_a]['RB'] / game_cnt_a
+        # STL: Number of Steals
+        x_features[34] = self.team_stats[team_h]['STL'] / game_cnt_h
+        x_features[35] = self.team_stats[team_a]['STL'] / game_cnt_a
+        # TO: Number of Turnovers
+        x_features[36] = self.team_stats[team_h]['TOV'] / game_cnt_h
+        x_features[37] = self.team_stats[team_a]['TOV'] / game_cnt_a
+        # TODO: add other statistics
 
         return x_features
 
     def get_data(self, opps: pd.DataFrame) -> (np.array, list):
-        x_data = np.zeros((opps.shape[0], self.features_n))
+        x_data = np.empty((opps.shape[0], self.features_n))
         skipped = []
 
         for i, row in enumerate(opps.iterrows()):
@@ -261,20 +378,20 @@ class Model:
 
         # skip betting on training seasons
         if not self.has_model or opps.empty:
-            bets = pd.DataFrame(data=bets, columns=["BetH", "BetA"], index=opps.index)
+            bets = pd.DataFrame(data=bets, columns=['BetH', 'BetA'], index=opps.index)
             return bets
 
         # make prediction
         x, no_info = self.get_data(opps)
         probs = classify(self.model, x)
         # confidence threshold
-        confidence_threshold = np.where(probs < 0.5 + self.cnf_threshold)[0]
+        confidence_threshold = np.where(abs(probs - 0.5) < + self.cnf_threshold)[0]
         no_bet = np.union1d(no_info, confidence_threshold).astype(int)
 
         # chose bets
         prev_bets = opps[['BetH', 'BetA']].to_numpy()
         fractions = get_optimal_fractions(probs, opps[['OddsH', 'OddsA']])
-        budget = bankroll * 0.1
+        budget = bankroll * 0.2
         budget_per_match = budget / n
         my_bets = fractions * budget_per_match
         my_bets -= prev_bets
@@ -284,5 +401,5 @@ class Model:
         # place bets
         bets = my_bets
         bets[no_bet, :] = 0
-        bets = pd.DataFrame(data=bets, columns=["BetH", "BetA"], index=opps.index)
+        bets = pd.DataFrame(data=bets, columns=['BetH', 'BetA'], index=opps.index)
         return bets
