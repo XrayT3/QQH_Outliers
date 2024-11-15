@@ -1,16 +1,26 @@
 import numpy as np
 import pandas as pd
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+
 def get_optimal_fractions(probabilities: np.ndarray, odds: pd.Series) -> np.ndarray:
     # Kelly criterion
     b = odds.to_numpy()
-    q = 1 - probabilities
-    fractions = probabilities - (q / b)
 
-    var = 0.289
-    coefficient = np.square((b + 1) * probabilities - 1) / (
-                np.square((b + 1) * probabilities - 1) + np.square((b + 1) * var))
-    fractions *= coefficient
+    kelly_home = (1 - probabilities) - (probabilities / b[:, 0])
+    kelly_away = probabilities - ((1 - probabilities) / b[:, 1])
+
+    fractions = np.array([kelly_home, kelly_away]).T
+
+    # q = 1 - probabilities
+    # fractions = probabilities - (q / b)
+    # var = 0.289
+    # coefficient = np.square((b + 1) * probabilities - 1) / (
+    #             np.square((b + 1) * probabilities - 1) + np.square((b + 1) * var))
+    # fractions *= coefficient
 
     # remove negative values
     fractions[fractions < 0] = 0
@@ -24,9 +34,78 @@ def sharp_betting_strategy():
     # TODO
     pass
 
-class TeamLevelModel:
+
+class TeamLevelNN(nn.Module):
     def __init__(self):
-        pass
+        super(TeamLevelNN, self).__init__()
+        # Define layers
+        self.model = nn.Sequential(
+            nn.Linear(2, 64),
+            nn.Tanh(),
+            nn.Dropout(0.2),
+            nn.Linear(64, 32),
+            nn.Tanh(),
+            nn.Dropout(0.2),
+            nn.Linear(32, 16),
+            nn.Tanh(),
+            nn.Dropout(0.2),
+            nn.Linear(16, 1),
+            nn.Sigmoid()  # Using sigmoid for binary classification
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+def classify(model, x_test):
+    # Convert test data to PyTorch tensor
+    x_test_tensor = torch.tensor(x_test, dtype=torch.float32)
+
+    # Set the model to evaluation mode
+    model.eval()
+
+    # Perform forward pass to get predictions
+    with torch.no_grad():  # Disable gradient calculation for inference
+        probs = model(x_test_tensor).squeeze()
+
+    # Convert probabilities to binary class predictions
+    predictions = (probs >= 0.5).int()  # Threshold of 0.5 for binary classification
+
+    # return predictions.numpy()
+    return probs.numpy()
+
+
+def train_model(x_train, y_train, epochs=50, batch_size=32, lr=0.001):
+    # Convert numpy arrays to PyTorch tensors
+    x_train_tensor = torch.tensor(x_train, dtype=torch.float32)
+    y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
+
+    # Create DataLoader
+    dataset = TensorDataset(x_train_tensor, y_train_tensor)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    # Initialize model, loss function, and optimizer
+    model = TeamLevelNN()
+    # TODO: change loss function
+    criterion = nn.BCELoss()  # Binary Cross-Entropy Loss for binary classification
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.0001)  # L2 regularization
+
+    # Training loop
+    for epoch in range(epochs):
+        model.train()
+        for batch_x, batch_y in dataloader:
+            # Forward pass
+            outputs = model(batch_x).squeeze()
+            loss = criterion(outputs, batch_y)
+
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        if (epoch + 1) % 10 == 0:
+            print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.4f}')
+
+    return model
 
 class Model:
 
@@ -41,14 +120,14 @@ class Model:
         self.teams_n = 2
         self.year = 1900
         self.team_stats = {}
-        self.train_data = []  # [[X_1, X_2, ...], [y_1, y_2, ...]]
+        self.train_data = [[], []]  # [[X_1, X_2, ...], [y_1, y_2, ...]]
         self.first_try = True
         self.has_model = False
         self.minimal_games = 10
         self.cnf_threshold = 0.2
         self.trained_seasons = []
         self.games = pd.DataFrame()
-        self.model = TeamLevelModel()
+        self.model = TeamLevelNN()
         self.features_n = 1 * self.teams_n
 
     def __store_inc(self, games: pd.DataFrame):
@@ -71,6 +150,9 @@ class Model:
             return False
 
     def __update_stats(self, match: pd.Series, team_h: int, team_a: int):
+        if team_h not in self.team_stats: self.__init_team(team_h)
+        if team_a not in self.team_stats: self.__init_team(team_a)
+
         self.team_stats[team_h]['GM CNT'] += 1
         self.team_stats[team_a]['GM CNT'] += 1
 
@@ -86,17 +168,18 @@ class Model:
         # remove rows with incomplete information
         season_df = season_df.dropna()
 
-        for i, row in season_df.iterrows():
-            team_h, team_a = row['HID'], row['AID']
+        for i, row in enumerate(season_df.iterrows()):
+            match = row[1]
+            team_h, team_a = match['HID'], match['AID']
             if team_h not in self.team_stats: self.__init_team(team_h)
             if team_a not in self.team_stats: self.__init_team(team_a)
 
             if self.team_stats[team_a]['GM CNT'] > self.minimal_games and self.team_stats[team_h]['GM CNT'] > self.minimal_games:
                 x_data[i, :] = self.get_features(team_h, team_a)
-                y_data[i] = row['A']
+                y_data[i] = match['A']
             else:
                 skipped_rows.append(i)
-            self.__update_stats(row, team_h, team_a)
+            self.__update_stats(match, team_h, team_a)
 
         # save train data
         mask = np.ones(x_data.shape[0], dtype='bool')
@@ -132,8 +215,9 @@ class Model:
         x_data = np.zeros((opps.shape[0], self.features_n))
         skipped = []
 
-        for i, row in opps.iterrows():
-            team_h, team_a = row['HID'], row['AID']
+        for i, row in enumerate(opps.iterrows()):
+            match = row[1]
+            team_h, team_a = match['HID'], match['AID']
 
             # if there is no info about team, skip
             if team_a not in self.team_stats or team_h not in self.team_stats:
@@ -150,7 +234,7 @@ class Model:
     def train_model(self):
         x_train = np.concatenate(self.train_data[0], axis=0)
         y_train = np.concatenate(self.train_data[1], axis=0)
-        self.model.fit(x_train, y_train)
+        self.model = train_model(x_train, y_train)
         self.has_model = True
 
     def place_bets(self, summary: pd.DataFrame, opps: pd.DataFrame, inc: tuple[pd.DataFrame, pd.DataFrame]):
@@ -165,7 +249,7 @@ class Model:
 
         # update statistics in the current season for teams
         if not self.first_try:  # for qualification upload
-            for i, match in inc[0].iterrows():
+            for _, match in inc[0].iterrows():
                 self.__update_stats(match, match['HID'], match['AID'])
         self.first_try = False
 
@@ -182,9 +266,9 @@ class Model:
 
         # make prediction
         x, no_info = self.get_data(opps)
-        probs = self.model.predict_proba(x)
+        probs = classify(self.model, x)
         # confidence threshold
-        confidence_threshold = np.where(np.all(probs < 0.5 + self.cnf_threshold, axis=1))[0]
+        confidence_threshold = np.where(probs < 0.5 + self.cnf_threshold)[0]
         no_bet = np.union1d(no_info, confidence_threshold).astype(int)
 
         # chose bets
