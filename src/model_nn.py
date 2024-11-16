@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
+
 def fractional_kelly_betting_strategy(probabilities: np.ndarray, odds: pd.Series) -> np.ndarray:
     # Kelly criterion
     b = odds.to_numpy()
@@ -29,6 +30,7 @@ def fractional_kelly_betting_strategy(probabilities: np.ndarray, odds: pd.Series
     fractions[fractions < 0] = 0
     return fractions
 
+
 def uniform_betting_strategy(probabilities: np.ndarray, odds: pd.Series):
     books_pst = odds.to_numpy()
     books_pst = 1 / books_pst
@@ -41,6 +43,7 @@ def uniform_betting_strategy(probabilities: np.ndarray, odds: pd.Series):
     my_pst[:, 0] = 1 - probabilities
 
     return (my_pst - books_pst > 0).astype(int)
+
 
 def sharp_betting_strategy(probabilities: np.ndarray):
     n = probabilities.shape[0]
@@ -60,22 +63,27 @@ def sharp_betting_strategy(probabilities: np.ndarray):
         return - (expected_return / portfolio_std)
 
     # Bounds: weights should be between 0 and 1 (no short selling)
-    bounds = [(0.0, 1.0) for _ in range(2*n)]
+    bounds = [(0.0, 1.0) for _ in range(2 * n)]
     # Constraint: sum of weights must be 1
     constraints = ({'type': 'eq', 'fun': lambda f: np.sum(f) - 1})
     # Initial guess (equal distribution)
-    initial_guess = np.ones(2*n) / (2*n)
+    initial_guess = np.ones(2 * n) / (2 * n)
 
     result = minimize(objective, initial_guess, bounds=bounds, constraints=constraints)
     # Return the optimized weights
-    if not result.success: print(result.message)
-    return result.x.reshape((n,2)) if result.success else None
+    if not result.success:
+        print(result.message)
+        print(my_pst)
+        print(n)
+    return result.x.reshape((n, 2)) if result.success else None
+
 
 def coefficients_to_probs(coefficient1, coefficient2):
     p1 = 1 / coefficient1
     p2 = 1 / coefficient2
     p2_norm = p2 / (p1 + p2)
     return p2_norm
+
 
 # Function to set the random seed
 def set_seed(seed):
@@ -86,6 +94,7 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
 # Custom loss function
 class CustomMSELoss(nn.Module):
     def __init__(self, gamma=0.8):
@@ -95,11 +104,12 @@ class CustomMSELoss(nn.Module):
     def forward(self, predictions, targets):
         r = targets[:, 0]  # True class label (0 or 1)
         m = targets[:, 1]  # Bookmaker's probability
-        t = predictions    # Model's predicted probability
+        t = predictions  # Model's predicted probability
 
         # Compute the custom MSE loss
         loss = torch.mean((t - r) ** 2 - self.gamma * (t - m) ** 2)
         return loss
+
 
 class TeamLevelNN(nn.Module):
     def __init__(self):
@@ -121,6 +131,7 @@ class TeamLevelNN(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+
 
 def train_model(x_train, y_train, seed=42, epochs=100, batch_size=1024, lr=0.001):
     # Set seed for reproducibility
@@ -157,6 +168,7 @@ def train_model(x_train, y_train, seed=42, epochs=100, batch_size=1024, lr=0.001
 
     return model
 
+
 def classify(model, x_test):
     # Convert test data to PyTorch tensor
     x_test_tensor = torch.tensor(x_test, dtype=torch.float32)
@@ -166,6 +178,7 @@ def classify(model, x_test):
         probs = model(x_test_tensor).squeeze()
 
     return np.array(probs, ndmin=1)
+
 
 class Model:
 
@@ -190,7 +203,6 @@ class Model:
             'TOV': 0,
         }
 
-
     def __init__(self):
         self.year = 1900
         self.team_stats = {}
@@ -207,8 +219,10 @@ class Model:
     def __store_inc(self, games: pd.DataFrame):
         if games.empty: return
 
-        if self.games.empty: self.games = games
-        else: self.games = pd.concat([self.games, games])
+        if self.games.empty:
+            self.games = games
+        else:
+            self.games = pd.concat([self.games, games])
 
     def __is_enough_data(self):
         # 5 seasons is enough data
@@ -279,7 +293,8 @@ class Model:
             if team_h not in self.team_stats: self.__init_team(team_h)
             if team_a not in self.team_stats: self.__init_team(team_a)
 
-            if self.team_stats[team_a]['GM CNT'] > self.minimal_games and self.team_stats[team_h]['GM CNT'] > self.minimal_games:
+            if self.team_stats[team_a]['GM CNT'] > self.minimal_games and self.team_stats[team_h][
+                'GM CNT'] > self.minimal_games:
                 x_data[i, :] = self.get_features(team_h, team_a)
                 y_data[i] = match['A'], coefficients_to_probs(match['OddsH'], match['OddsA'])
             else:
@@ -323,8 +338,8 @@ class Model:
         x_features[4] = self.team_stats[team_h]['DRB'] / game_cnt_h
         x_features[5] = self.team_stats[team_a]['DRB'] / game_cnt_a
         # FG_PCT: Field Goals Made / Field Goals Attempted
-        x_features[6] = self.team_stats[team_h]['FGM'] /  self.team_stats[team_h]['FGA']
-        x_features[7] = self.team_stats[team_a]['FGM'] /  self.team_stats[team_a]['FGA']
+        x_features[6] = self.team_stats[team_h]['FGM'] / self.team_stats[team_h]['FGA']
+        x_features[7] = self.team_stats[team_a]['FGM'] / self.team_stats[team_a]['FGA']
         # FG3_PCT: 3 points Field Goals Made / 3 points Field Goals Attempted
         x_features[8] = self.team_stats[team_h]['FG3M'] / self.team_stats[team_h]['FG3A']
         x_features[9] = self.team_stats[team_a]['FG3M'] / self.team_stats[team_a]['FG3A']
@@ -386,7 +401,8 @@ class Model:
             if team_a not in self.team_stats or team_h not in self.team_stats:
                 skipped.append(i)
                 continue
-            if self.team_stats[team_a]['GM CNT'] <= self.minimal_games or self.team_stats[team_h]['GM CNT'] <= self.minimal_games:
+            if self.team_stats[team_a]['GM CNT'] <= self.minimal_games or self.team_stats[team_h][
+                'GM CNT'] <= self.minimal_games:
                 skipped.append(i)
                 continue
 
@@ -436,9 +452,10 @@ class Model:
 
         # chose bets
         prev_bets = opps[['BetH', 'BetA']].to_numpy()
-        fractions = fractional_kelly_betting_strategy(probs, opps[['OddsH', 'OddsA']])
-        # fractions = sharp_betting_strategy(probs)
-        budget_per_match = (bankroll * 0.1) / n
+        # fractions = fractional_kelly_betting_strategy(probs, opps[['OddsH', 'OddsA']])
+        # budget_per_match = (bankroll * 0.1) / n
+        fractions = sharp_betting_strategy(probs)
+        budget_per_match = bankroll * 0.1
         my_bets = fractions * budget_per_match
         my_bets -= prev_bets
         my_bets[my_bets < min_bet] = 0
