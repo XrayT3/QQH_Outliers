@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from numpy.ma.core import shape
 from scipy.optimize import minimize
 
 import torch
@@ -116,7 +115,7 @@ class TeamLevelNN(nn.Module):
         super(TeamLevelNN, self).__init__()
         # Define layers
         self.model = nn.Sequential(
-            nn.Linear(38, 64),
+            nn.Linear(60, 64),
             nn.Tanh(),
             nn.Dropout(0.2),
             nn.Linear(64, 32),
@@ -133,7 +132,7 @@ class TeamLevelNN(nn.Module):
         return self.model(x)
 
 
-def train_model(x_train, y_train, seed=42, epochs=100, batch_size=1024, lr=0.001):
+def train_model(model: TeamLevelNN, x_train, y_train, seed=42, epochs=100, batch_size=1024, lr=0.001):
     # Set seed for reproducibility
     set_seed(seed)
 
@@ -146,7 +145,7 @@ def train_model(x_train, y_train, seed=42, epochs=100, batch_size=1024, lr=0.001
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize model, custom loss function, and optimizer
-    model = TeamLevelNN()
+    # model = TeamLevelNN()
     criterion = CustomMSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.0001)
 
@@ -166,7 +165,7 @@ def train_model(x_train, y_train, seed=42, epochs=100, batch_size=1024, lr=0.001
         if (epoch + 1) % 20 == 0:
             print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.3f}')
 
-    return model
+    # return model
 
 
 def classify(model, x_test):
@@ -177,7 +176,13 @@ def classify(model, x_test):
     with torch.no_grad():  # Disable gradient calculation for inference
         probs = model(x_test_tensor).squeeze()
 
-    return np.array(probs, ndmin=1)
+    # Ensure probs is always returned as a numpy array with at least 1 dimension
+    probs = np.asarray(probs).reshape(-1)
+    # Check for NaN values and replace them with 0.5
+    if np.any(np.isnan(probs)):
+        probs = np.nan_to_num(probs, nan=0.5)
+
+    return probs
 
 
 class Model:
@@ -201,6 +206,12 @@ class Model:
             'RB': 0,
             'STL': 0,
             'TOV': 0,
+            'OPP_FG3M': 0,
+            'OPP_FGM': 0,
+            'OPP_FGA': 0,
+            'OPP_FTA': 0,
+            'OPP_RB': 0,
+            'OPP_ORB': 0,
         }
 
     def __init__(self):
@@ -214,7 +225,7 @@ class Model:
         self.trained_seasons = []
         self.games = pd.DataFrame()
         self.model = TeamLevelNN()
-        self.features_n = 38
+        self.features_n = 60
 
     def __store_inc(self, games: pd.DataFrame):
         if games.empty: return
@@ -243,7 +254,6 @@ class Model:
 
         self.team_stats[team_h]['GM CNT'] += 1
         self.team_stats[team_a]['GM CNT'] += 1
-
         # Basic statistics
         self.team_stats[team_h]['AST'] += match['HAST']
         self.team_stats[team_a]['AST'] += match['AAST']
@@ -277,7 +287,27 @@ class Model:
         self.team_stats[team_a]['STL'] += match['ASTL']
         self.team_stats[team_h]['TOV'] += match['HTOV']
         self.team_stats[team_a]['TOV'] += match['ATOV']
-        # TODO: add other statistics
+        # Advanced statistics
+        self.team_stats[team_h]['OPP_FG3M'] += match['AFG3M']
+        self.team_stats[team_a]['OPP_FG3M'] += match['HFG3M']
+        self.team_stats[team_h]['OPP_FGM'] += match['AFGM']
+        self.team_stats[team_a]['OPP_FGM'] += match['HFGM']
+        self.team_stats[team_h]['OPP_FGA'] += match['AFGA']
+        self.team_stats[team_a]['OPP_FGA'] += match['HFGA']
+        self.team_stats[team_h]['OPP_FTA'] += match['AFTA']
+        self.team_stats[team_a]['OPP_FTA'] += match['HFTA']
+        self.team_stats[team_h]['OPP_RB'] += match['ARB']
+        self.team_stats[team_a]['OPP_RB'] += match['HRB']
+        self.team_stats[team_h]['OPP_ORB'] += match['AORB']
+        self.team_stats[team_a]['OPP_ORB'] += match['HORB']
+
+    def __calculate_pie(self, team_id: int):
+        pie = (self.team_stats[team_id]['PTS'] + self.team_stats[team_id]['FGM'] + self.team_stats[team_id]['FTM'] -
+               self.team_stats[team_id]['FGA'] - self.team_stats[team_id]['FTA'] + self.team_stats[team_id]['DRB'] +
+               self.team_stats[team_id]['ORB'] / 2 + self.team_stats[team_id]['AST'] + self.team_stats[team_id]['STL'] +
+               self.team_stats[team_id]['BLK'] / 2 - self.team_stats[team_id]['PF'] - self.team_stats[team_id]['TOV'])
+        avg_pie = pie / self.team_stats[team_id]['GM CNT']
+        return avg_pie
 
     def __process_one_season(self, season_df: pd.DataFrame):
         x_data = np.empty((season_df.shape[0], self.features_n))
@@ -385,7 +415,47 @@ class Model:
         # TO: Number of Turnovers
         x_features[36] = self.team_stats[team_h]['TOV'] / game_cnt_h
         x_features[37] = self.team_stats[team_a]['TOV'] / game_cnt_a
-        # TODO: add other statistics
+
+        # ADVANCED STATISTICS
+        # AST: Assist
+        x_features[38] = self.team_stats[team_h]['AST'] / game_cnt_h
+        x_features[39] = self.team_stats[team_a]['AST'] / game_cnt_a
+        # AST_TOV: Number of Assists for every turnover
+        x_features[40] = self.team_stats[team_h]['AST'] / self.team_stats[team_h]['TOV']
+        x_features[41] = self.team_stats[team_a]['AST'] / self.team_stats[team_a]['TOV']
+        # DREB_PCT:
+        x_features[42] = self.team_stats[team_h]['DRB'] / self.team_stats[team_h]['RB']
+        x_features[43] = self.team_stats[team_a]['DRB'] / self.team_stats[team_a]['RB']
+        # EFG_PCT:
+        fg3m_h = self.team_stats[team_h]['FG3M']
+        fg3m_a = self.team_stats[team_a]['FG3M']
+        x_features[44] = (0.5*fg3m_h + self.team_stats[team_h]['FGM']) / self.team_stats[team_h]['FGA']
+        x_features[45] = (0.5*fg3m_a + self.team_stats[team_a]['FGM']) / self.team_stats[team_a]['FGA']
+        # OREB_PCT
+        x_features[46] = self.team_stats[team_h]['ORB'] / self.team_stats[team_h]['RB']
+        x_features[47] = self.team_stats[team_a]['ORB'] / self.team_stats[team_a]['RB']
+        # DREB_PCT
+        x_features[48] = self.team_stats[team_h]['DRB'] / self.team_stats[team_h]['RB']
+        x_features[49] = self.team_stats[team_a]['DRB'] / self.team_stats[team_a]['RB']
+        # PIE
+        x_features[50] = self.__calculate_pie(team_h)
+        x_features[51] = self.__calculate_pie(team_a)
+
+        # FOUR FACTORS
+        # FTA_RATE
+        x_features[52] = self.team_stats[team_h]['FTA'] / self.team_stats[team_h]['FGA']
+        x_features[53] = self.team_stats[team_a]['FTA'] / self.team_stats[team_a]['FGA']
+        # OPP_EFG_PCT
+        opp_fg3m_h = self.team_stats[team_h]['OPP_FG3M']
+        opp_fg3m_a = self.team_stats[team_a]['OPP_FG3M']
+        x_features[54] = (0.5 * opp_fg3m_h + self.team_stats[team_h]['OPP_FGM']) / self.team_stats[team_h]['OPP_FGA']
+        x_features[55] = (0.5 * opp_fg3m_a + self.team_stats[team_a]['OPP_FGM']) / self.team_stats[team_a]['OPP_FGA']
+        # OPP_FTA_RATE
+        x_features[56] = self.team_stats[team_h]['OPP_FTA'] / self.team_stats[team_h]['OPP_FGA']
+        x_features[57] = self.team_stats[team_a]['OPP_FTA'] / self.team_stats[team_a]['OPP_FGA']
+        # OPP_OREB_PCT
+        x_features[58] = self.team_stats[team_h]['OPP_ORB'] / self.team_stats[team_h]['OPP_RB']
+        x_features[59] = self.team_stats[team_a]['OPP_ORB'] / self.team_stats[team_a]['OPP_RB']
 
         return x_features
 
@@ -413,7 +483,7 @@ class Model:
     def train_model(self):
         x_train = np.concatenate(self.train_data[0], axis=0)
         y_train = np.concatenate(self.train_data[1], axis=0)
-        self.model = train_model(x_train, y_train)
+        train_model(self.model, x_train, y_train)
         self.has_model = True
 
     def place_bets(self, summary: pd.DataFrame, opps: pd.DataFrame, inc: tuple[pd.DataFrame, pd.DataFrame]):
