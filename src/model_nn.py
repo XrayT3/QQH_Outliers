@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from numpy.ma.core import shape
+from scipy.optimize import minimize
 
 import torch
 import random
@@ -7,7 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
-def get_optimal_fractions(probabilities: np.ndarray, odds: pd.Series) -> np.ndarray:
+def fractional_kelly_betting_strategy(probabilities: np.ndarray, odds: pd.Series) -> np.ndarray:
     # Kelly criterion
     b = odds.to_numpy()
 
@@ -27,13 +29,47 @@ def get_optimal_fractions(probabilities: np.ndarray, odds: pd.Series) -> np.ndar
     fractions[fractions < 0] = 0
     return fractions
 
-def uniform_betting_strategy():
-    # TODO
-    pass
+def uniform_betting_strategy(probabilities: np.ndarray, odds: pd.Series):
+    books_pst = odds.to_numpy()
+    books_pst = 1 / books_pst
+    margin = books_pst.sum(axis=1)
+    books_pst[:, 0] = books_pst[:, 0] / margin
+    books_pst[:, 1] = books_pst[:, 1] / margin
 
-def sharp_betting_strategy():
-    # TODO
-    pass
+    my_pst = np.empty(books_pst.shape)
+    my_pst[:, 1] = probabilities
+    my_pst[:, 0] = 1 - probabilities
+
+    return (my_pst - books_pst > 0).astype(int)
+
+def sharp_betting_strategy(probabilities: np.ndarray):
+    n = probabilities.shape[0]
+
+    my_pst = np.empty((n, 2))
+    my_pst[:, 1] = probabilities
+    my_pst[:, 0] = 1 - probabilities
+
+    def objective(f):
+        # Calculate expected return of the portfolio
+        expected_return = np.sum(f * my_pst.flatten())
+        # Calculate portfolio standard deviation (risk)
+        portfolio_variance = np.sum(f ** 2)  # Simple risk approximation
+        portfolio_std = np.sqrt(portfolio_variance)
+        # portfolio_std = np.std(f)
+        # Return negative Sharpe ratio (since we're minimizing)
+        return - (expected_return / portfolio_std)
+
+    # Bounds: weights should be between 0 and 1 (no short selling)
+    bounds = [(0.0, 1.0) for _ in range(2*n)]
+    # Constraint: sum of weights must be 1
+    constraints = ({'type': 'eq', 'fun': lambda f: np.sum(f) - 1})
+    # Initial guess (equal distribution)
+    initial_guess = np.ones(2*n) / (2*n)
+
+    result = minimize(objective, initial_guess, bounds=bounds, constraints=constraints)
+    # Return the optimized weights
+    if not result.success: print(result.message)
+    return result.x.reshape((n,2)) if result.success else None
 
 def coefficients_to_probs(coefficient1, coefficient2):
     p1 = 1 / coefficient1
@@ -52,8 +88,7 @@ def set_seed(seed):
 
 # Custom loss function
 class CustomMSELoss(nn.Module):
-    # TODO: try diff gamma
-    def __init__(self, gamma=0.2):
+    def __init__(self, gamma=0.8):
         super(CustomMSELoss, self).__init__()
         self.gamma = gamma
 
@@ -130,7 +165,7 @@ def classify(model, x_test):
     with torch.no_grad():  # Disable gradient calculation for inference
         probs = model(x_test_tensor).squeeze()
 
-    return probs.numpy()
+    return np.array(probs, ndmin=1)
 
 class Model:
 
@@ -157,10 +192,9 @@ class Model:
 
 
     def __init__(self):
-        self.teams_n = 2
         self.year = 1900
         self.team_stats = {}
-        self.train_data = [[], [], []]  # [[X_1, X_2, ...], [y_1, y_2, ...]]
+        self.train_data = [[], []]  # [[X_1, X_2, ...], [y_1, y_2, ...]]
         self.first_try = True
         self.has_model = False
         self.minimal_games = 10
@@ -237,7 +271,7 @@ class Model:
         skipped_rows = []
 
         # remove rows with incomplete information
-        season_df = season_df.dropna()
+        season_df.dropna(inplace=True)
 
         for i, row in enumerate(season_df.iterrows()):
             match = row[1]
@@ -247,7 +281,7 @@ class Model:
 
             if self.team_stats[team_a]['GM CNT'] > self.minimal_games and self.team_stats[team_h]['GM CNT'] > self.minimal_games:
                 x_data[i, :] = self.get_features(team_h, team_a)
-                y_data[i] = match['A'] , coefficients_to_probs(match['OddsH'], match['OddsA'])
+                y_data[i] = match['A'], coefficients_to_probs(match['OddsH'], match['OddsA'])
             else:
                 skipped_rows.append(i)
             self.__update_stats(match, team_h, team_a)
@@ -352,7 +386,7 @@ class Model:
             if team_a not in self.team_stats or team_h not in self.team_stats:
                 skipped.append(i)
                 continue
-            if self.team_stats[team_a]['GM CNT'] < self.minimal_games or self.team_stats[team_h]['GM CNT'] < self.minimal_games:
+            if self.team_stats[team_a]['GM CNT'] <= self.minimal_games or self.team_stats[team_h]['GM CNT'] <= self.minimal_games:
                 skipped.append(i)
                 continue
 
@@ -402,9 +436,9 @@ class Model:
 
         # chose bets
         prev_bets = opps[['BetH', 'BetA']].to_numpy()
-        fractions = get_optimal_fractions(probs, opps[['OddsH', 'OddsA']])
-        budget = bankroll * 0.1
-        budget_per_match = budget / n
+        fractions = fractional_kelly_betting_strategy(probs, opps[['OddsH', 'OddsA']])
+        # fractions = sharp_betting_strategy(probs)
+        budget_per_match = (bankroll * 0.1) / n
         my_bets = fractions * budget_per_match
         my_bets -= prev_bets
         my_bets[my_bets < min_bet] = 0
