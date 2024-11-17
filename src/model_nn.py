@@ -9,7 +9,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
 
-def fractional_kelly_betting_strategy(probabilities: np.ndarray, odds: pd.Series) -> np.ndarray:
+def kelly_betting_strategy(probabilities: np.ndarray, odds: pd.Series) -> np.ndarray:
     # Kelly criterion
     b = odds.to_numpy()
 
@@ -57,7 +57,6 @@ def sharp_betting_strategy(probabilities: np.ndarray):
         # Calculate portfolio standard deviation (risk)
         portfolio_variance = np.sum(f ** 2)  # Simple risk approximation
         portfolio_std = np.sqrt(portfolio_variance)
-        # portfolio_std = np.std(f)
         # Return negative Sharpe ratio (since we're minimizing)
         return - (expected_return / portfolio_std)
 
@@ -96,7 +95,7 @@ def set_seed(seed):
 
 # Custom loss function
 class CustomMSELoss(nn.Module):
-    def __init__(self, gamma=0.8):
+    def __init__(self, gamma=0.1415):
         super(CustomMSELoss, self).__init__()
         self.gamma = gamma
 
@@ -115,15 +114,18 @@ class TeamLevelNN(nn.Module):
         super(TeamLevelNN, self).__init__()
         # Define layers
         self.model = nn.Sequential(
-            nn.Linear(60, 64),
+            nn.Linear(62, 64),
             nn.Tanh(),
             nn.Dropout(0.2),
+
             nn.Linear(64, 32),
             nn.Tanh(),
             nn.Dropout(0.2),
+
             nn.Linear(32, 16),
             nn.Tanh(),
             nn.Dropout(0.2),
+
             nn.Linear(16, 1),
             nn.Sigmoid()  # Output probability between 0 and 1
         )
@@ -215,17 +217,18 @@ class Model:
         }
 
     def __init__(self):
+        self.season = 0
         self.year = 1900
         self.team_stats = {}
         self.train_data = [[], []]  # [[X_1, X_2, ...], [y_1, y_2, ...]]
         self.first_try = True
         self.has_model = False
         self.minimal_games = 10
-        self.cnf_threshold = 0.2
+        self.cnf_threshold = 0.2953
         self.trained_seasons = []
         self.games = pd.DataFrame()
         self.model = TeamLevelNN()
-        self.features_n = 60
+        self.features_n = 62
 
     def __store_inc(self, games: pd.DataFrame):
         if games.empty: return
@@ -239,11 +242,12 @@ class Model:
         # 5 seasons is enough data
         return len(self.train_data[0]) >= 5
 
-    def __is_new_season(self, summary: pd.DataFrame):
-        date = summary.iloc[0]['Date']
-        curr_month, curr_year = date.month, date.year
-        if curr_month == 11 and curr_year > self.year:  # if it's November and new year => it's a new season
-            self.year = curr_year
+    def __is_new_season(self, future: pd.DataFrame, past: pd.DataFrame):
+        if future.empty: curr_season = past.iloc[0]['Season']
+        else: curr_season = future.iloc[0]['Season']
+
+        if curr_season > self.season:
+            self.season = curr_season
             return True
         else:
             return False
@@ -315,7 +319,7 @@ class Model:
         skipped_rows = []
 
         # remove rows with incomplete information
-        season_df.dropna(inplace=True)
+        season_df = season_df.dropna()
 
         for i, row in enumerate(season_df.iterrows()):
             match = row[1]
@@ -325,7 +329,7 @@ class Model:
 
             if self.team_stats[team_a]['GM CNT'] > self.minimal_games and self.team_stats[team_h][
                 'GM CNT'] > self.minimal_games:
-                x_data[i, :] = self.get_features(team_h, team_a)
+                x_data[i, :] = self.get_features(team_h, team_a, match['OddsH'], match['OddsA'])
                 y_data[i] = match['A'], coefficients_to_probs(match['OddsH'], match['OddsA'])
             else:
                 skipped_rows.append(i)
@@ -353,7 +357,7 @@ class Model:
             season_df = self.games[self.games['Season'] == season]
             self.__process_one_season(season_df)
 
-    def get_features(self, team_h: int, team_a: int) -> np.ndarray:
+    def get_features(self, team_h: int, team_a: int, odd_h, odd_a) -> np.ndarray:
         x_features = np.empty(self.features_n)
 
         game_cnt_h = self.team_stats[team_h]['GM CNT']
@@ -457,6 +461,10 @@ class Model:
         x_features[58] = self.team_stats[team_h]['OPP_ORB'] / self.team_stats[team_h]['OPP_RB']
         x_features[59] = self.team_stats[team_a]['OPP_ORB'] / self.team_stats[team_a]['OPP_RB']
 
+        # Bookmaker's odds
+        x_features[60] = odd_h
+        x_features[61] = odd_a
+
         return x_features
 
     def get_data(self, opps: pd.DataFrame) -> (np.array, list):
@@ -476,13 +484,14 @@ class Model:
                 skipped.append(i)
                 continue
 
-            x_data[i, :] = self.get_features(team_h, team_a)
+            x_data[i, :] = self.get_features(team_h, team_a, match['OddsH'], match['OddsA'])
 
         return x_data, skipped
 
     def train_model(self):
         x_train = np.concatenate(self.train_data[0], axis=0)
         y_train = np.concatenate(self.train_data[1], axis=0)
+        print(len(self.train_data[0]))
         train_model(self.model, x_train, y_train)
         self.has_model = True
 
@@ -503,7 +512,7 @@ class Model:
         self.first_try = False
 
         # retrain model every season
-        if self.__is_new_season(summary):
+        if self.__is_new_season(opps, inc[0]):
             self.__prepare_train_data()
             if self.__is_enough_data():
                 self.train_model()
