@@ -6,6 +6,7 @@ sys.path.append(".")
 
 # from model import Model
 from model_nn import Model
+# from greenhorns import Model
 from environment import Environment
 
 games = pd.read_csv("./data/games.csv", index_col=0)

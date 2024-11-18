@@ -69,10 +69,10 @@ def sharp_betting_strategy(probabilities: np.ndarray):
 
     result = minimize(objective, initial_guess, bounds=bounds, constraints=constraints)
     # Return the optimized weights
-    if not result.success:
-        print(result.message)
-        print(my_pst)
-        print(n)
+    # if not result.success:
+        # print(result.message)
+        # print(my_pst)
+        # print(n)
     return result.x.reshape((n, 2)) if result.success else None
 
 
@@ -95,7 +95,7 @@ def set_seed(seed):
 
 # Custom loss function
 class CustomMSELoss(nn.Module):
-    def __init__(self, gamma=0.1415):
+    def __init__(self, gamma=0.65):
         super(CustomMSELoss, self).__init__()
         self.gamma = gamma
 
@@ -114,7 +114,7 @@ class TeamLevelNN(nn.Module):
         super(TeamLevelNN, self).__init__()
         # Define layers
         self.model = nn.Sequential(
-            nn.Linear(62, 64),
+            nn.Linear(64, 64),
             nn.Tanh(),
             nn.Dropout(0.2),
 
@@ -164,8 +164,8 @@ def train_model(model: TeamLevelNN, x_train, y_train, seed=42, epochs=100, batch
             loss.backward()
             optimizer.step()
 
-        if (epoch + 1) % 20 == 0:
-            print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.3f}')
+        # if (epoch + 1) % 20 == 0:
+            # print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.3f}')
 
     # return model
 
@@ -191,6 +191,7 @@ class Model:
 
     def __init_team(self, team_id):
         self.team_stats[team_id] = {
+            'WIN': 0,
             'GM CNT': 0,
             'AST': 0,
             'BLK': 0,
@@ -224,11 +225,11 @@ class Model:
         self.first_try = True
         self.has_model = False
         self.minimal_games = 10
-        self.cnf_threshold = 0.2953
+        self.cnf_threshold = 0.4
         self.trained_seasons = []
         self.games = pd.DataFrame()
         self.model = TeamLevelNN()
-        self.features_n = 62
+        self.features_n = 64
 
     def __store_inc(self, games: pd.DataFrame):
         if games.empty: return
@@ -258,6 +259,8 @@ class Model:
 
         self.team_stats[team_h]['GM CNT'] += 1
         self.team_stats[team_a]['GM CNT'] += 1
+        self.team_stats[team_h]['WIN'] += match['H']
+        self.team_stats[team_a]['WIN'] += match['A']
         # Basic statistics
         self.team_stats[team_h]['AST'] += match['HAST']
         self.team_stats[team_a]['AST'] += match['AAST']
@@ -464,6 +467,8 @@ class Model:
         # Bookmaker's odds
         x_features[60] = odd_h
         x_features[61] = odd_a
+        x_features[62] = self.team_stats[team_h]['WIN'] / game_cnt_h
+        x_features[63] = self.team_stats[team_a]['WIN'] / game_cnt_a
 
         return x_features
 
@@ -491,7 +496,7 @@ class Model:
     def train_model(self):
         x_train = np.concatenate(self.train_data[0], axis=0)
         y_train = np.concatenate(self.train_data[1], axis=0)
-        print(len(self.train_data[0]))
+        # print(len(self.train_data[0]))
         train_model(self.model, x_train, y_train)
         self.has_model = True
 
