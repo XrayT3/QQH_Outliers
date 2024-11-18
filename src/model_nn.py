@@ -8,6 +8,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+
 
 def kelly_betting_strategy(probabilities: np.ndarray, odds: pd.Series) -> np.ndarray:
     # Kelly criterion
@@ -187,6 +192,92 @@ def classify(model, x_test):
     return probs
 
 
+# Define a function to train and classify using MLPClassifier
+def train_model_mlp(x_train, y_train, random_state=42):
+    """
+    Train the MLPClassifier model.
+    """
+    scaler = StandardScaler()
+    x_train_scaled = scaler.fit_transform(x_train)
+
+    # Create an MLPClassifier model
+    model1 = MLPClassifier(
+        hidden_layer_sizes=(64, 16),
+        learning_rate_init=0.0005,
+        random_state=random_state,
+        activation='logistic',
+        batch_size=1024,
+        shuffle=False
+    )
+    model2 = MLPClassifier(
+        hidden_layer_sizes=(64, 32),
+        learning_rate_init=0.0005,
+        random_state=random_state,
+        activation='logistic',
+        batch_size=1024,
+        shuffle=False
+    )
+    model3 = MLPClassifier(
+        hidden_layer_sizes=(64, 32, 16),
+        random_state=random_state,
+        early_stopping=True,
+        activation='tanh',
+        batch_size=1024,
+        shuffle=False
+    )
+    model4 = MLPClassifier(
+        hidden_layer_sizes=(64, 16),
+        random_state=random_state,
+        learning_rate_init=0.005,
+        early_stopping=True,
+        activation='logistic',
+        batch_size=1024,
+        shuffle=False
+    )
+
+    # Train the model
+    model1.fit(x_train_scaled, y_train)
+    model2.fit(x_train_scaled, y_train)
+    model3.fit(x_train_scaled, y_train)
+    model4.fit(x_train_scaled, y_train)
+
+    probs1 = model1.predict_proba(x_train_scaled)[:, 1]
+    probs2 = model2.predict_proba(x_train_scaled)[:, 1]
+    probs3 = model3.predict_proba(x_train_scaled)[:, 1]
+    probs4 = model4.predict_proba(x_train_scaled)[:, 1]
+
+    meta_features = np.array((probs1, probs2, probs3, probs4)).T
+
+    meta_model = LogisticRegression()
+    meta_model.fit(meta_features, y_train)
+
+    return [model1, model2, model3, model4, meta_model]
+
+
+def classify_mlp(model, x_test):
+    """
+    Make predictions using the trained MLP model.
+    """
+    # Predict probabilities for the positive class
+    scaler = StandardScaler()
+    x_test = np.nan_to_num(x_test, nan=0.0)
+    x_test_scaled = scaler.fit_transform(x_test)
+
+    probs1 = model[0].predict_proba(x_test_scaled)[:, 1]  # Select probability of class 1
+    probs2 = model[1].predict_proba(x_test_scaled)[:, 1]  # Select probability of class 1
+    probs3 = model[2].predict_proba(x_test_scaled)[:, 1]  # Select probability of class 1
+    probs4 = model[3].predict_proba(x_test_scaled)[:, 1]  # Select probability of class 1
+    meta_features = np.array((probs1, probs2, probs3, probs4)).T
+
+    probs = model[4].predict_proba(meta_features)[:, 1]  # Select probability of class 1
+
+    # Replace NaNs with 0.5 if they occur
+    if np.any(np.isnan(probs)):
+        probs = np.nan_to_num(probs, nan=0.5)
+
+    return probs
+
+
 class Model:
 
     def __init_team(self, team_id):
@@ -225,10 +316,10 @@ class Model:
         self.first_try = True
         self.has_model = False
         self.minimal_games = 10
-        self.cnf_threshold = 0.4
+        self.cnf_threshold = 0.2
         self.trained_seasons = []
         self.games = pd.DataFrame()
-        self.model = TeamLevelNN()
+        self.model = Pipeline
         self.features_n = 64
 
     def __store_inc(self, games: pd.DataFrame):
@@ -318,7 +409,7 @@ class Model:
 
     def __process_one_season(self, season_df: pd.DataFrame):
         x_data = np.empty((season_df.shape[0], self.features_n))
-        y_data = np.empty((season_df.shape[0], 2))
+        y_data = np.empty(season_df.shape[0])
         skipped_rows = []
 
         # remove rows with incomplete information
@@ -333,7 +424,7 @@ class Model:
             if self.team_stats[team_a]['GM CNT'] > self.minimal_games and self.team_stats[team_h][
                 'GM CNT'] > self.minimal_games:
                 x_data[i, :] = self.get_features(team_h, team_a, match['OddsH'], match['OddsA'])
-                y_data[i] = match['A'], coefficients_to_probs(match['OddsH'], match['OddsA'])
+                y_data[i] = match['A']  #, coefficients_to_probs(match['OddsH'], match['OddsA'])
             else:
                 skipped_rows.append(i)
             self.__update_stats(match, team_h, team_a)
@@ -497,7 +588,7 @@ class Model:
         x_train = np.concatenate(self.train_data[0], axis=0)
         y_train = np.concatenate(self.train_data[1], axis=0)
         # print(len(self.train_data[0]))
-        train_model(self.model, x_train, y_train)
+        self.model = train_model_mlp(x_train, y_train)
         self.has_model = True
 
     def place_bets(self, summary: pd.DataFrame, opps: pd.DataFrame, inc: tuple[pd.DataFrame, pd.DataFrame]):
@@ -529,16 +620,16 @@ class Model:
 
         # make prediction
         x, no_info = self.get_data(opps)
-        probs = classify(self.model, x)
+        probs = classify_mlp(self.model, x)
         # confidence threshold
         confidence_threshold = np.where(abs(probs - 0.5) < + self.cnf_threshold)[0]
         no_bet = np.union1d(no_info, confidence_threshold).astype(int)
 
         # chose bets
         prev_bets = opps[['BetH', 'BetA']].to_numpy()
-        # fractions = fractional_kelly_betting_strategy(probs, opps[['OddsH', 'OddsA']])
+        fractions = kelly_betting_strategy(probs, opps[['OddsH', 'OddsA']])
         # budget_per_match = (bankroll * 0.1) / n
-        fractions = sharp_betting_strategy(probs)
+        # fractions = sharp_betting_strategy(probs)
         budget_per_match = bankroll * 0.1
         my_bets = fractions * budget_per_match
         my_bets -= prev_bets
