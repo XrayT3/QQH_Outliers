@@ -5,8 +5,8 @@ import sys
 sys.path.append(".")
 
 # from model import Model
-# from model_nn import Model
-from model_xgboost import Model
+from model_nn import Model
+# from model_xgboost import Model
 # from greenhorns import Model
 from environment import Environment
 

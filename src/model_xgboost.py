@@ -383,39 +383,6 @@ class Model:
             self.model_elo.fit(x_train_elo, y_train)
             self.has_model = True
 
-        if not opps.empty:
-            big_odds_idx = np.where(np.all(opps[['OddsH', 'OddsA']] > 1.6, axis=1))[0]
-            big_n = len(big_odds_idx)
-            a = self.prev_bets_cnt + 1
-            b = self.prev_bets_cnt + big_n
-
-            if big_n > 0:
-                if a == 1:
-                    bets[big_odds_idx[0], 0] = max_bet
-                if a <= 2 <= b:
-                    bets[big_odds_idx[2 - a], 0] = max_bet
-                if a <= 3 <= b:
-                    bets[big_odds_idx[3 - a], 1] = max_bet
-                if a <= 4 <= b:
-                    bets[big_odds_idx[4 - a], 1] = max_bet
-                if a <= 5 <= b:
-                    bets[big_odds_idx[5 - a], 0] = max_bet
-                if a <= 6 <= b:
-                    bets[big_odds_idx[6 - a], 0] = max_bet
-                if a <= 7 <= b:
-                    bets[big_odds_idx[7 - a], 1] = max_bet
-                if a <= 8 <= b:
-                    bets[big_odds_idx[8 - a], 0] = max_bet
-                if a <= 9 <= b:
-                    bets[big_odds_idx[9 - a], 1] = max_bet
-                if a <= 10 <= b:
-                    bets[big_odds_idx[10 - a], 1] = max_bet
-                if a <= 11 <= b:
-                    bets[big_odds_idx[11 - a], 0] = max_bet
-
-                self.prev_bets_cnt += big_n
-            return pd.DataFrame(data=bets, columns=["BetH", "BetA"], index=opps.index)
-
         # skip betting on training seasons
         if not self.has_model or opps.empty:
             bets = pd.DataFrame(data=bets, columns=["BetH", "BetA"], index=opps.index)

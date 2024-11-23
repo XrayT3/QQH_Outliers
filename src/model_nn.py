@@ -8,7 +8,6 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
-from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
@@ -201,23 +200,7 @@ def train_model_mlp(x_train, y_train, random_state=42):
     x_train_scaled = scaler.fit_transform(x_train)
 
     # Create an MLPClassifier model
-    model1 = MLPClassifier(
-        hidden_layer_sizes=(64, 16),
-        learning_rate_init=0.0005,
-        random_state=random_state,
-        activation='logistic',
-        batch_size=1024,
-        shuffle=False
-    )
-    model2 = MLPClassifier(
-        hidden_layer_sizes=(64, 32),
-        learning_rate_init=0.0005,
-        random_state=random_state,
-        activation='logistic',
-        batch_size=1024,
-        shuffle=False
-    )
-    model3 = MLPClassifier(
+    model = MLPClassifier(
         hidden_layer_sizes=(64, 32, 16),
         random_state=random_state,
         early_stopping=True,
@@ -225,33 +208,11 @@ def train_model_mlp(x_train, y_train, random_state=42):
         batch_size=1024,
         shuffle=False
     )
-    model4 = MLPClassifier(
-        hidden_layer_sizes=(64, 16),
-        random_state=random_state,
-        learning_rate_init=0.005,
-        early_stopping=True,
-        activation='logistic',
-        batch_size=1024,
-        shuffle=False
-    )
 
     # Train the model
-    model1.fit(x_train_scaled, y_train)
-    model2.fit(x_train_scaled, y_train)
-    model3.fit(x_train_scaled, y_train)
-    model4.fit(x_train_scaled, y_train)
+    model.fit(x_train_scaled, y_train)
 
-    probs1 = model1.predict_proba(x_train_scaled)[:, 1]
-    probs2 = model2.predict_proba(x_train_scaled)[:, 1]
-    probs3 = model3.predict_proba(x_train_scaled)[:, 1]
-    probs4 = model4.predict_proba(x_train_scaled)[:, 1]
-
-    meta_features = np.array((probs1, probs2, probs3, probs4)).T
-
-    meta_model = LogisticRegression()
-    meta_model.fit(meta_features, y_train)
-
-    return [model1, model2, model3, model4, meta_model]
+    return model
 
 
 def classify_mlp(model, x_test):
@@ -263,13 +224,7 @@ def classify_mlp(model, x_test):
     x_test = np.nan_to_num(x_test, nan=0.0)
     x_test_scaled = scaler.fit_transform(x_test)
 
-    probs1 = model[0].predict_proba(x_test_scaled)[:, 1]  # Select probability of class 1
-    probs2 = model[1].predict_proba(x_test_scaled)[:, 1]  # Select probability of class 1
-    probs3 = model[2].predict_proba(x_test_scaled)[:, 1]  # Select probability of class 1
-    probs4 = model[3].predict_proba(x_test_scaled)[:, 1]  # Select probability of class 1
-    meta_features = np.array((probs1, probs2, probs3, probs4)).T
-
-    probs = model[4].predict_proba(meta_features)[:, 1]  # Select probability of class 1
+    probs = model.predict_proba(x_test_scaled)[:, 1]  # Select probability of class 1
 
     # Replace NaNs with 0.5 if they occur
     if np.any(np.isnan(probs)):
