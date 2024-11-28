@@ -22,13 +22,6 @@ def kelly_betting_strategy(probabilities: np.ndarray, odds: pd.Series) -> np.nda
 
     fractions = np.array([kelly_home, kelly_away]).T
 
-    # q = 1 - probabilities
-    # fractions = probabilities - (q / b)
-    # var = 0.289
-    # coefficient = np.square((b + 1) * probabilities - 1) / (
-    #             np.square((b + 1) * probabilities - 1) + np.square((b + 1) * var))
-    # fractions *= coefficient
-
     # remove negative values
     fractions[fractions < 0] = 0
     return fractions
@@ -73,10 +66,6 @@ def sharp_betting_strategy(probabilities: np.ndarray):
 
     result = minimize(objective, initial_guess, bounds=bounds, constraints=constraints)
     # Return the optimized weights
-    # if not result.success:
-        # print(result.message)
-        # print(my_pst)
-        # print(n)
     return result.x.reshape((n, 2)) if result.success else None
 
 
@@ -151,7 +140,6 @@ def train_model(model: TeamLevelNN, x_train, y_train, seed=42, epochs=100, batch
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize model, custom loss function, and optimizer
-    # model = TeamLevelNN()
     criterion = CustomMSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=0.0001)
 
@@ -167,11 +155,6 @@ def train_model(model: TeamLevelNN, x_train, y_train, seed=42, epochs=100, batch
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
-        # if (epoch + 1) % 20 == 0:
-            # print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.3f}')
-
-    # return model
 
 
 def classify(model, x_test):
@@ -211,7 +194,6 @@ def train_model_mlp(x_train, y_train, random_state=42):
 
     # Train the model
     model.fit(x_train_scaled, y_train)
-
     return model
 
 
@@ -542,7 +524,6 @@ class Model:
     def train_model(self):
         x_train = np.concatenate(self.train_data[0], axis=0)
         y_train = np.concatenate(self.train_data[1], axis=0)
-        # print(len(self.train_data[0]))
         self.model = train_model_mlp(x_train, y_train)
         self.has_model = True
 

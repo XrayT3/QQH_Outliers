@@ -60,53 +60,17 @@ class EloModel:
             self.ratings[key] = 1500
 
     def update_rating(self, game):
-        homeRating = self.ratings[game["HID"]]
-        awayRating = self.ratings[game["AID"]]
-        homeScore, awayScore = game["HSC"], game["ASC"]
+        home_rating = self.ratings[game["HID"]]
+        away_rating = self.ratings[game["AID"]]
+        home_score, away_score = game["HSC"], game["ASC"]
 
-        diff = homeRating - awayRating + self.homeAdv
+        diff = home_rating - away_rating + self.homeAdv
         expected = 1 / (1 + self.divisor ** (-diff / self.power))
 
-        k = self.k0 * ((1 + np.abs(homeScore - awayScore)) ** self.gamma)
+        k = self.k0 * ((1 + np.abs(home_score - away_score)) ** self.gamma)
 
-        self.ratings[game["HID"]] = homeRating + k * (game["A"] - expected)
-        self.ratings[game["AID"]] = awayRating - k * (game["A"] - expected)
-
-
-class Berrar:
-    def __init__(self):
-        self.att_ratings = {}
-        self.def_ratings = {}
-        self.beta = 0.11
-        self.gamma = 3.6
-        self.omega_att = 0.54
-        self.omega_def = 0.3
-
-    def remove(self):
-        for key in self.att_ratings.keys():
-            self.att_ratings[key] = 1500
-            self.def_ratings[key] = 1500
-
-    def update_rating(self, match):
-        def eXg(att_rtg, def_rtg, alfa, beta, gamma):
-            return alfa / (1 + np.exp(-beta * (att_rtg + def_rtg) - gamma))
-
-        alpha = 5
-
-        HID, AID, HSC, ASC = match['HID'], match['AID'], match['HSC'], match['ASC']
-
-        artg_h = self.att_ratings[HID]
-        drtg_h = self.def_ratings[HID]
-        artg_a = self.att_ratings[AID]
-        drtg_a = self.def_ratings[AID]
-
-        gh = eXg(artg_h, drtg_a, alpha, self.beta, self.gamma)
-        ga = eXg(artg_a, drtg_h, alpha, self.beta, self.gamma)
-
-        self.att_ratings[HID] += self.omega_att * (HSC - gh)
-        self.def_ratings[HID] += self.omega_def * (ASC - ga)
-        self.att_ratings[AID] += self.omega_att * (ASC - ga)
-        self.def_ratings[AID] += self.omega_def * (HSC - gh)
+        self.ratings[game["HID"]] = home_rating + k * (game["A"] - expected)
+        self.ratings[game["AID"]] = away_rating - k * (game["A"] - expected)
 
 
 class Model:
@@ -121,8 +85,6 @@ class Model:
             "A RTG": 0.0
         }
         self.elo_rating.ratings[team_id] = 1500
-        self.berrar.def_ratings[team_id] = 1500
-        self.berrar.att_ratings[team_id] = 1500
 
     def __init__(self):
         self.prev_bets_cnt = 0
@@ -139,16 +101,12 @@ class Model:
         self.team_stats = {}
         self.team_pi_rating = {}
         self.elo_rating = EloModel()
-        self.berrar = Berrar()
         self.games = pd.DataFrame()
         self.season = -1
         self.wins_cnt = np.zeros((100, 100))
         self.games_cnt = np.zeros((100, 100))
-        # self.model = XGBClassifier(max_depth=4, subsample=0.8, min_child_weight=5, colsample_bytree=0.25, seed=24)
-        # self.model = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
         self.model_pi_rating = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
         self.model_page_rank = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
-        # self.model_berrar = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
         self.model_elo = XGBClassifier(eta=0.2, max_depth=3, min_child_weight=5, colsample_bytree=0.5, seed=24)
 
 
@@ -230,12 +188,10 @@ class Model:
         self.__delete_pi_ratings()
         self.__delete_page_rank()
         self.elo_rating.remove()
-        self.berrar.remove()
         for _, row in games_2_seasons.iterrows():
             self.__update_pi_rating(row)
             self.__update_page_rank(row)
             self.elo_rating.update_rating(row)
-            self.berrar.update_rating(row)
 
     def add_new_data_from_current_season(self, team_h: int, team_a: int, match: pd.Series):
         self.team_stats[team_h]['GM CNT CS'] += 1
@@ -244,13 +200,11 @@ class Model:
         self.__update_pi_rating(match)
         self.__update_page_rank(match)
         self.elo_rating.update_rating(match)
-        self.berrar.update_rating(match)
 
     def get_features(self, team_h: int, team_a: int):
         # x_features = np.zeros(self.features_n)
         x_features_pi = np.zeros(4)
         x_features_page = np.zeros(2)
-        # x_features_berrar = np.zeros(4)
         x_features_elo = np.zeros(2)
 
         # home team's features
@@ -264,17 +218,12 @@ class Model:
         x_features_page[0] = self.wins_cnt[team_h, team_a] / self.games_cnt[team_h, team_a]
         x_features_page[1] = self.wins_cnt[team_a, team_h] / self.games_cnt[team_a, team_h]
 
-        # x_features_berrar[0] = self.berrar.att_ratings[team_a]
-        # x_features_berrar[1] = self.berrar.def_ratings[team_a]
-        # x_features_berrar[2] = self.berrar.att_ratings[team_h]
-        # x_features_berrar[3] = self.berrar.def_ratings[team_h]
-
         x_features_elo[0] = self.elo_rating.ratings[team_h]
         x_features_elo[1] = self.elo_rating.ratings[team_a]
 
         return x_features_pi, x_features_page, x_features_elo
 
-    def get_train_data(self) -> (np.array, np.array, np.array, np.array, np.array):
+    def get_train_data(self):
         curr_season = self.season - 1
 
         # get statistics for the last 2 seasons
@@ -283,7 +232,6 @@ class Model:
         games_curr_season = self.games[self.games['Season'] == curr_season]
         x_train_pi = np.zeros((games_curr_season.shape[0], 4))
         x_train_page = np.zeros((games_curr_season.shape[0], 2))
-        # x_train_berrar = np.zeros((games_curr_season.shape[0], 4))
         x_train_elo = np.zeros((games_curr_season.shape[0], 2))
         y_train = np.zeros(games_curr_season.shape[0])
         good_rows = np.ones(games_curr_season.shape[0], dtype=bool)
@@ -314,7 +262,6 @@ class Model:
 
         x_train_pi = x_train_pi[good_rows, :]
         x_train_page = x_train_page[good_rows, :]
-        # x_train_berrar = x_train_berrar[good_rows, :]
         x_train_elo = x_train_elo[good_rows, :]
         y_train_without_zeros = y_train[good_rows]
 
@@ -329,7 +276,6 @@ class Model:
     def get_data(self, opps: pd.DataFrame):
         x_data_pi = np.zeros((opps.shape[0], 4))
         x_data_page = np.zeros((opps.shape[0], 2))
-        # x_data_berrar = np.zeros((opps.shape[0], 4))
         x_data_elo = np.zeros((opps.shape[0], 2))
         skipped = []
 
@@ -379,7 +325,6 @@ class Model:
             x_train_pi, x_train_page, x_train_elo, y_train = self.get_train_data()
             self.model_pi_rating.fit(x_train_pi, y_train)
             self.model_page_rank.fit(x_train_page, y_train)
-            # self.model_berrar.fit(x_train_berrar, y_train)
             self.model_elo.fit(x_train_elo, y_train)
             self.has_model = True
 
@@ -392,9 +337,7 @@ class Model:
         x1, x2, x4, no_info = self.get_data(opps)
         probs1 = self.model_pi_rating.predict_proba(x1)
         probs2 = self.model_page_rank.predict_proba(x2)
-        # probs3 = self.model_berrar.predict_proba(x3)
         probs4 = self.model_elo.predict_proba(x4)
-        # probs = (probs1 + probs2 + probs4) / 3
         probs = 0.0*probs1 + 1.0*probs2 + 0.0*probs4
         # confidence threshold
         confidence_threshold = np.where(np.all(probs < 0.5 + self.cnf_threshold, axis=1))[0]
