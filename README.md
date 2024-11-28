@@ -71,9 +71,7 @@ V případě neúspěšného doběhnutí tvého programu se odevzdávací sytém
 - `TLE` = Time Limit Exceeded. Překročil jsi časový limit.
 
 
-
-
 ## Contributors ✨
 
-Thanks to these amazing people for their contributions:
+Thanks to the amazing person for his contributions:
 - [@Illia-Kryvoviaz](https://github.com/Illia-Kryvoviaz) - Code, ideas
