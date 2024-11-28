@@ -70,3 +70,10 @@ V případě neúspěšného doběhnutí tvého programu se odevzdávací sytém
 - `MLE` = Memory Limit Exceeded. Překročil jsi  pamětový limit. (Může být rozpoznáno jako RTE)
 - `TLE` = Time Limit Exceeded. Překročil jsi časový limit.
 
+
+
+
+## Contributors ✨
+
+Thanks to these amazing people for their contributions:
+- [@Illia-Kryvoviaz](https://github.com/Illia-Kryvoviaz) - Code, ideas
