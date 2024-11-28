@@ -69,9 +69,3 @@ V případě neúspěšného doběhnutí tvého programu se odevzdávací sytém
 - `RTE` = Runtime Error. Nejčastěji kód spadnul na vyjímku, jejíž jméno ti odevzdávací systém (po rozkliknutí testcasu) ukáže. 
 - `MLE` = Memory Limit Exceeded. Překročil jsi  pamětový limit. (Může být rozpoznáno jako RTE)
 - `TLE` = Time Limit Exceeded. Překročil jsi časový limit.
-
-
-## Contributors ✨
-
-Thanks to the amazing person for his contributions:
-- [@Illia-Kryvoviaz](https://github.com/Illia-Kryvoviaz) - Code, ideas
