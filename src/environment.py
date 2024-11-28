@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 
 class IModel:
-    def place_bets(self, summary: pd.DataFrame, opps: pd.DataFrame, inc: pd.DataFrame):
+    def place_bets(self, summary: pd.DataFrame, opps: pd.DataFrame, inc: tuple[pd.DataFrame, pd.DataFrame]):
         raise NotImplementedError()
 
 
@@ -60,11 +60,13 @@ class Environment:
         self.last_seen = pd.to_datetime("1900-01-01")
 
         self.history = {"Date": [], "Bankroll": [], "Cash_Invested": []}
+        self.total_bets = 0
+        self.correct_bets = 0
 
     def run(self):
         print(f"Start: {self.start_date}, End: {self.end_date}")
 
-        run_fraction = 0.2
+        run_fraction = 0.3
 
         # Create a date range array and calculate the number of days to run
         date_range = pd.date_range(self.start_date, self.end_date)
@@ -80,7 +82,7 @@ class Environment:
             # get betting options for current day
             # today's games + next day(s) games -> self.odds_availability
             opps = self._get_options(date)
-            if opps.empty:
+            if opps.empty and inc[0].empty and inc[1].empty:
                 bankroll_history[i] = bankroll_history[i-1]
                 continue
 
@@ -105,6 +107,10 @@ class Environment:
         plt.ylabel("Bankroll")
         plt.grid()
         plt.show()
+
+        accuracy = (self.correct_bets / self.total_bets) * 100
+        print(f"Total Bet Accuracy: {accuracy:.4f}%")
+        print(f"Average bankroll: {np.mean(bankroll_history):.0f}")
 
         return self.games
 
@@ -131,6 +137,13 @@ class Environment:
 
             # update bankroll with the winnings
             self.bankroll += winnings
+
+            # Track accuracy of bets
+            correct_bets = (b * r > 0).sum()
+            total_bets = (b > 0).sum()
+
+            self.correct_bets += correct_bets
+            self.total_bets += total_bets
 
             # save current bankroll
             self._save_state(date + pd.Timedelta(6, unit="h"), 0.0)

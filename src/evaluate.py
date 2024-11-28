@@ -4,7 +4,10 @@ import sys
 
 sys.path.append(".")
 
-from model import Model
+# from model import Model
+from model_nn import Model
+# from model_xgboost import Model
+# from greenhorns import Model
 from environment import Environment
 
 games = pd.read_csv("./data/games.csv", index_col=0)
@@ -18,7 +21,6 @@ env = Environment(games, players, Model(), init_bankroll=1000, min_bet=5, max_be
 
 evaluation = env.run()
 
-print()
 print(f'Final bankroll: {env.bankroll:.2f}')
 
 history = env.get_history()
